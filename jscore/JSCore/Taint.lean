@@ -26,7 +26,7 @@ mutual
     | .boolLit _ => []
     | .none => []
     | .letConst x e body => freeVars e ++ (freeVars body |>.filter (· != x))
-    | .letMut x e body => freeVars e ++ (freeVars body |>.filter (· != x))
+    | .letMut _ e body => freeVars e ++ freeVars body
     | .assign x e body => [x] ++ freeVars e ++ freeVars body
     | .field e _ => freeVars e
     | .obj pairs => freeVarsPairs pairs
@@ -153,8 +153,10 @@ end
 -- No call matching pattern has any argument that depends on source
 def notTaintedIn (prog : Expr) (source pattern : String) : Bool :=
   let calls := callExprsIn prog pattern
-  calls.all fun ci =>
+  let argsIndependent := calls.all fun ci =>
     ci.namedArgs.all fun (_, argExpr) =>
       !taintedBy prog source argExpr
+  let controlIndependent := decide (source ∉ freeVars prog)
+  controlIndependent && argsIndependent
 
 end JSCore

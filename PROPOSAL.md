@@ -522,6 +522,15 @@ Taint is purely static — it walks the AST and follows binding chains. Sound fo
 
 **Mutable binding over-approximation.** If a `letMut` variable is assigned the tainted source on _any_ code path, the analysis marks it tainted everywhere — even on branches where the assignment doesn't execute. This means a pattern like `let x = safe; if (rare) { x = secret; } logger.log(x)` marks `x` as tainted in the `logger.log` call, even though most paths are clean. This is sound (no false negatives) but may produce false positives, causing proof failures for code that is actually safe. The fix is always local: refactor the mutable variable into separate `const` bindings per branch, which the agent can do automatically when the taint proof fails.
 
+**Control-flow independence (current implementation).** Today, `notTaintedIn` also requires a coarse global check: the taint source must not appear in `freeVars prog`. This treats any syntactic dependence on the source (including branch conditions) as potentially influencing calls. As a result, the analysis is conservative: it can reject programs that are path-safe in practice (false positives), but it does not miss real leaks. Example: if `if (secret) { ... } else { ... }` appears anywhere in the function, the proof precondition fails even when a specific matched call argument is source-independent on each branch. A future refinement is path-sensitive control-dependence tracking per call site, so we only reject calls actually control-dependent on source-tainted conditions.
+
+**Taint precision examples (current behavior).**
+
+- `taintSafeLiteral` (`examples/taintSafeLiteral.ts`) → `notTaintedIn ... "secret" "logger.*" = true` (source absent from program)
+- `taintDirectLeak` (`examples/taintDirectLeak.ts`) → `notTaintedIn ... "secret" "logger.*" = false` (direct data flow)
+- `taintControlFlowConservative` (`examples/taintControlFlowConservative.ts`) → `notTaintedIn ... "secret" "logger.*" = false` (control-flow conservative rejection)
+- `taintLetMutOverapprox` (`examples/taintLetMutOverapprox.ts`) → `notTaintedIn ... "secret" "logger.public" = false` (mutable + control-flow over-approximation)
+
 The key taint soundness theorem:
 
 ```lean
