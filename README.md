@@ -88,12 +88,12 @@ The taint analysis walks the AST, tracks that `apiKey` flows to `db.apiKey.updat
 ## What you can prove
 
 ```
-∀ call db.* (c) => c.where.workspaceId = auth.workspaceId     -- workspace isolation
+∀ call db.* (c) => c.where.workspaceId = auth.workspaceId       -- workspace isolation
 ¬ tainted secret in call logger.*                               -- no secret leak
-∀ call db.account.update (u) => sum(u.data.balance) = 0        -- conservation
-∃ call permissions.check (p) before u where p.action = "write" -- auth gate
+∀ call db.account.update (u) => sum(u.data.balance) = 0         -- conservation
+∃ call permissions.check (p) before u where p.action = "write"  -- auth gate
 ¬ ∃ call db.*.update                                            -- read-only
-∀ call db.*.findMany (f) => f.take = pageSize                  -- page bounded
+∀ call db.*.findMany (f) => f.take = pageSize                   -- page bounded
 ```
 
 Three proof shapes:
