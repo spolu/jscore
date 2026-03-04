@@ -69,4 +69,23 @@ theorem forall_extractCalls_append (t1 t2 : List TraceEntry)
   | inl h => exact h1 c h
   | inr h => exact h2 c h
 
+-- callsTo on empty trace is empty
+theorem callsTo_nil (pattern : String) :
+    callsTo [] pattern = [] := rfl
+
+-- callsTo on a single matching .call entry is a singleton
+theorem callsTo_singleton_call {cr : CallRecord} {pattern : String}
+    (h : matchesPattern cr.target pattern = true) :
+    callsTo [TraceEntry.call cr] pattern = [cr] := by
+  simp [callsTo, extractCalls, List.filterMap, List.filter, h]
+
+-- c ∈ callsTo [.call cr] pattern implies c = cr (when pattern matches)
+theorem mem_callsTo_singleton {cr : CallRecord} {pattern : String} {c : CallRecord}
+    (h_pat : matchesPattern cr.target pattern = true)
+    (h_mem : c ∈ callsTo [TraceEntry.call cr] pattern) :
+    c = cr := by
+  rw [callsTo_singleton_call h_pat] at h_mem
+  simp [List.mem_cons, List.mem_nil_iff] at h_mem
+  exact h_mem
+
 end JSCore

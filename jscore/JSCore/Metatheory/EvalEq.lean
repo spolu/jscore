@@ -182,4 +182,42 @@ theorem eval_tryCatch_eq {n : Nat} {env : Env} {store : Store}
        mkResult rh.outcome rh.store (rb.trace ++ rh.trace)
      | _ => rb) := rfl
 
+-- Derived properties: var eval produces empty trace and preserves store
+
+theorem eval_var_trace_nil {n : Nat} {env : Env} {store : Store} {x : String} :
+    (eval (n + 1) env store (Expr.var x)).trace = [] := by
+  rw [eval_var_eq]; cases lookup env store x <;> rfl
+
+theorem eval_var_store_eq {n : Nat} {env : Env} {store : Store} {x : String} :
+    (eval (n + 1) env store (Expr.var x)).store = store := by
+  rw [eval_var_eq]; cases lookup env store x <;> rfl
+
+-- Derived property: ret preserves inner trace
+
+theorem eval_ret_trace {n : Nat} {env : Env} {store : Store} {e : Expr} :
+    (eval (n + 1) env store (.ret e)).trace = (eval n env store e).trace := by
+  rw [eval_ret_eq]
+  cases eval n env store e with
+  | mk outcome s t =>
+    cases outcome with
+    | ok v => simp [mkResult]
+    | error _ => rfl
+    | brk => rfl
+    | returned _ => rfl
+
+-- Derived property: field access on an env-bound object variable
+
+theorem eval_field_var {n : Nat} {env : Env} {store : Store}
+    {x : String} {fields : List (String × Val)} {fname : String} {v : Val}
+    (h_env : env x = some (Val.obj fields))
+    (h_store : store x = none)
+    (h_fl : fieldLookup fields fname = some v)
+    (hn : n ≥ 2) :
+    eval n env store (.field (.var x) fname) = mkResult (.ok v) store [] := by
+  obtain ⟨n', rfl⟩ : ∃ n', n = n' + 2 := ⟨n - 2, by omega⟩
+  rw [show n' + 2 = (n' + 1) + 1 from by omega, eval_field_eq]
+  rw [show n' + 1 = n' + 1 from rfl, eval_var_eq]
+  rw [lookup_none h_store, h_env]
+  simp only [mkResult_outcome, mkResult_store, mkResult_trace, h_fl]
+
 end JSCore

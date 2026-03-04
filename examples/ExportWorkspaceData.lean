@@ -31,15 +31,6 @@ def exportWorkspaceData_body : Expr :=
           ("tasks", (.var "tasks"))
         ]))))
 
--- Var eval always produces empty trace and preserves store
-private theorem eval_var_trace_nil {n : Nat} {env : Env} {store : Store} {x : String} :
-    (eval (n + 1) env store (Expr.var x)).trace = [] := by
-  rw [eval_var_eq]; cases lookup env store x <;> rfl
-
-private theorem eval_var_store_eq {n : Nat} {env : Env} {store : Store} {x : String} :
-    (eval (n + 1) env store (Expr.var x)).store = store := by
-  rw [eval_var_eq]; cases lookup env store x <;> rfl
-
 -- argAtPath helper for "where.workspaceId" path
 private theorem argAtPath_where_wsId (target : String) (resultId : String) (wsId : Val) :
     argAtPath { target := target,
@@ -50,21 +41,6 @@ private theorem argAtPath_where_wsId (target : String) (resultId : String) (wsId
   have h3 : (BEq.beq "workspaceId" "workspaceId" : Bool) = true := by native_decide
   simp only [argAtPath, h1, argLookup, fieldLookup, List.find?, List.foldl,
              h2, h3, ite_true, ite_false]
-
--- Helper: evaluate .field (.var "auth") "workspaceId" when auth = Val.obj fields
-private theorem eval_auth_wsId (n : Nat) (env : Env) (store : Store)
-    (fields : List (String × Val)) (wsVal : Val)
-    (h_env : env "auth" = some (Val.obj fields))
-    (h_store : store "auth" = none)
-    (h_fl : fieldLookup fields "workspaceId" = some wsVal)
-    (hn : n ≥ 3) :
-    eval n env store (.field (.var "auth") "workspaceId") =
-    mkResult (.ok wsVal) store [] := by
-  obtain ⟨n', rfl⟩ : ∃ n', n = n' + 3 := ⟨n - 3, by omega⟩
-  rw [show n' + 3 = (n' + 2) + 1 from by omega, eval_field_eq]
-  rw [show n' + 2 = (n' + 1) + 1 from by omega, eval_var_eq]
-  rw [lookup_none h_store, h_env]
-  simp only [mkResult_outcome, mkResult_store, mkResult_trace, h_fl]
 
 -- Helper: evaluate arg obj [("workspaceId", .field (.var "auth") "workspaceId")]
 private theorem eval_arg_obj (n : Nat) (env : Env) (store : Store)
@@ -78,21 +54,9 @@ private theorem eval_arg_obj (n : Nat) (env : Env) (store : Store)
   obtain ⟨n', rfl⟩ : ∃ n', n = n' + 4 := ⟨n - 4, by omega⟩
   rw [show n' + 4 = (n' + 3) + 1 from by omega, eval_obj_eq]
   simp only [List.foldl]
-  rw [eval_auth_wsId (n' + 3) env store fields wsVal h_env h_store h_fl (by omega)]
+  rw [eval_field_var h_env h_store h_fl (by omega)]
   simp only [mkResult_outcome, mkResult_store, mkResult_trace,
              List.nil_append, List.append_nil]
-
--- Ret always preserves inner trace
-private theorem eval_ret_preserves_trace {n : Nat} {env : Env} {store : Store} {e : Expr} :
-    (eval (n + 1) env store (.ret e)).trace = (eval n env store e).trace := by
-  rw [eval_ret_eq]
-  cases eval n env store e with
-  | mk outcome s t =>
-    cases outcome with
-    | ok v => simp [mkResult]
-    | error _ => rfl
-    | brk => rfl
-    | returned _ => rfl
 
 -- Helper: ret of obj of vars has no db.* calls in trace
 private theorem ret_obj_vars_no_calls (env : Env) (store : Store) :
@@ -100,7 +64,7 @@ private theorem ret_obj_vars_no_calls (env : Env) (store : Store) :
       (.ret (.obj [("projects", .var "projects"), ("tasks", .var "tasks")]))).trace "db.*" = [] := by
   have h_t : (eval 4 env store
       (.ret (.obj [("projects", .var "projects"), ("tasks", .var "tasks")]))).trace = [] := by
-    rw [show (4:Nat) = 3+1 from rfl, eval_ret_preserves_trace]
+    rw [show (4:Nat) = 3+1 from rfl, eval_ret_trace]
     rw [show (3:Nat) = 2+1 from rfl, eval_obj_eq]
     simp only [List.foldl, eval_var_trace_nil (n := 1), eval_var_store_eq (n := 1),
                List.nil_append, List.append_nil]
@@ -156,9 +120,7 @@ theorem exportWorkspaceData_ws_isolation
   cases hc with
   | inl h1 =>
     have hp : matchesPattern "db.projects.findMany" "db.*" = true := by native_decide
-    simp only [callsTo, extractCalls, List.filterMap, List.filter, hp, ite_true,
-               decide_true, List.mem_cons, List.mem_nil_iff, or_false] at h1
-    subst h1
+    have := mem_callsTo_singleton hp h1; subst this
     exact argAtPath_where_wsId "db.projects.findMany" "projects" (Val.num n)
   | inr h2 =>
     have h_env_auth2 : (env.set "projects" Val.none) "auth" = some (Val.obj fields) := by
@@ -175,9 +137,7 @@ theorem exportWorkspaceData_ws_isolation
     cases h2 with
     | inl h2a =>
       have hp : matchesPattern "db.tasks.findMany" "db.*" = true := by native_decide
-      simp only [callsTo, extractCalls, List.filterMap, List.filter, hp, ite_true,
-                 decide_true, List.mem_cons, List.mem_nil_iff, or_false] at h2a
-      subst h2a
+      have := mem_callsTo_singleton hp h2a; subst this
       exact argAtPath_where_wsId "db.tasks.findMany" "tasks" (Val.num n)
     | inr h2b =>
       exfalso
