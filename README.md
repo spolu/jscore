@@ -14,6 +14,26 @@ All proofs in `examples/` were generated entirely by coding agents (Claude). No 
 
 This is a proof of concept. Taint and nonexistence proofs close instantly (`native_decide`), but runtime property proofs can take a coding agent up to an hour of iteration against the Lean kernel. Not practical yet, but the trajectory is clear: as models get better at Lean, the loop tightens. This project exists to demonstrate that the approach works end-to-end today, and that formal verification can apply to normal codebases without any formal methods expertise.
 
+## Status
+
+```
+$ node dist/index.js coverage --out-dir ../examples ../examples/*.ts
+
+[x] exportWorkspaceData — 4 invariant(s), 1 require(s)
+[x] reorderTasks — 1 invariant(s), 1 require(s)
+[x] rotateApiKey — 1 invariant(s), 0 require(s)
+[x] lookupProject — 1 invariant(s), 1 require(s)
+[x] scopedUpdate — 1 invariant(s), 2 require(s)
+[x] signAndLog — 1 invariant(s), 0 require(s)
+[x] leakyLog — 1 invariant(s), 0 require(s)
+[x] taintSafeLiteral — 1 invariant(s), 0 require(s)
+
+Total: 8 functions
+  Proved:  8
+  Sorry:   0
+  Coverage: 100.0%
+```
+
 ## The three annotations
 
 ```typescript
