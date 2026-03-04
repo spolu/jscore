@@ -19,10 +19,10 @@ Toolchain: `leanprover/lean4:v4.16.0`. No external Lake dependencies. `autoImpli
 
 ### Extractor (`extractor/`)
 ```bash
-cd extractor && npx tsc                          # compile TS → dist/
-node dist/index.js extract --out-dir ../examples <files...>
-node dist/index.js verify  --out-dir ../examples --lean-dir ../jscore <files...>
-node dist/index.js coverage --out-dir ../examples <files...>
+cd extractor
+npx tsx src/index.ts extract  --out-dir ../examples <files...>
+npx tsx src/index.ts verify   --out-dir ../examples --lean-dir ../jscore <files...>
+npx tsx src/index.ts coverage --out-dir ../examples <files...>
 ```
 
 ### Examples (`examples/`)

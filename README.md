@@ -17,7 +17,7 @@ This is a proof of concept. Taint and nonexistence proofs close instantly (`nati
 ## Status
 
 ```
-$ node dist/index.js coverage --out-dir ../examples ../examples/*.ts
+$ npx tsx src/index.ts coverage --out-dir ../examples ../examples/*.ts
 
 [x] exportWorkspaceData — 4 invariant(s), 1 require(s)
 [x] reorderTasks — 1 invariant(s), 1 require(s)
@@ -131,9 +131,9 @@ Both proved by `native_decide`. The analysis tracks taint through binding chains
 export PATH="$HOME/.elan/bin:$PATH"
 cd jscore && lake build JSCore
 
-# Extractor
-cd extractor && npx tsc
-node dist/index.js extract --out-dir ../examples ../examples/*.ts
+# Extract and verify
+cd extractor
+npx tsx src/index.ts extract --out-dir ../examples ../examples/*.ts
 
 # Verify all proofs
 cd examples && lake build
