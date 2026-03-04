@@ -10,6 +10,10 @@ annotated .ts  -->  extractor (ts-morph)  -->  Lean 4 AST + theorems  -->  lake 
 
 Agents produce code faster than humans can review it. JSCore₀ replaces code review with three lightweight comment annotations that capture what the code should do. The agent generates both the implementation and the proof. If the proof checks, the code matches the spec. If it doesn't, `lake build` fails. No human reads the implementation.
 
+All proofs in `examples/` were generated entirely by coding agents (Claude). No human wrote Lean. Developers don't need to know anything about formal methods, Lean, or proof theory. They write TypeScript, add annotations in plain English-like syntax, and the toolchain handles the rest.
+
+This is a proof of concept. Taint and nonexistence proofs close instantly (`native_decide`), but runtime property proofs can take a coding agent up to an hour of iteration against the Lean kernel. Not practical yet, but the trajectory is clear: as models get better at Lean, the loop tightens. This project exists to demonstrate that the approach works end-to-end today, and that formal verification can apply to normal codebases without any formal methods expertise.
+
 ## The three annotations
 
 ```typescript
@@ -149,6 +153,14 @@ The eval function maps `Expr` to `Result` (outcome + store + trace). Proofs step
 For loops, `forOfFold_callsTo` provides a reusable invariant: given a per-iteration property on call records and a store invariant, it proves the property holds across the entire foldl.
 
 For taint, `notTaintedIn` is a Bool function that walks the AST. `taint_soundness` proves: if `notTaintedIn` returns true, changing the tainted source's value does not change any matching call's arguments.
+
+## Limitations
+
+JSCore₀ covers a subset of TypeScript/JavaScript. The extractor handles: `const`/`let`, `if`/`else`, `for...of`, `while`, `await` calls, object/array literals, spread, destructuring, template literals, `try`/`catch`, `throw`, `return`, `break`, `push`, optional chaining, and common array methods (`map`, `filter`, `reduce`, `forEach`, `find`, `some`, `every`, `flatMap`).
+
+Not supported: closures over mutable state, `this`, dynamic property access (`obj[expr]`), generators, `eval`, `Proxy`, `as any`, classes, `switch`, and most runtime reflection. `Promise.all` is desugared to sequential calls (sound but conservative). Unsupported constructs emit `sorry`, making the proof unprovable, which surfaces as a build failure.
+
+The language fragment is deliberately chosen to cover the patterns that matter most for backend/data-access code: CRUD operations, loops over collections, conditional branching, and external API calls. Most SaaS application code fits this fragment.
 
 ## Design doc
 
