@@ -150,6 +150,18 @@ theorem eval_field_eq {n : Nat} {env : Env} {store : Store}
      | .ok _ => mkResult (.ok .none) r.store r.trace
      | _ => r) := rfl
 
+theorem eval_obj_eq {n : Nat} {env : Env} {store : Store} {pairs : List (String × Expr)} :
+    eval (n + 1) env store (.obj pairs) =
+    (let result := pairs.foldl (fun (acc : List (String × Val) × Store × List TraceEntry)
+        (pair : String × Expr) =>
+      let (vals, curStore, curTrace) := acc
+      let r := eval n env curStore pair.2
+      match r.outcome with
+      | .ok v => (vals ++ [(pair.1, v)], r.store, curTrace ++ r.trace)
+      | _ => (vals, r.store, curTrace ++ r.trace)
+    ) ([], store, [])
+    mkResult (.ok (.obj result.1)) result.2.1 result.2.2) := rfl
+
 theorem eval_break_eq {n : Nat} {env : Env} {store : Store} :
     eval (n + 1) env store Expr.«break» = mkResult .brk store [] := rfl
 
