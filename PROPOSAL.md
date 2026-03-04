@@ -406,7 +406,7 @@ def evalForOf (fuel : Nat) (env : Env) (store : Store) (x : String)
 
 ### Desugaring: TypeScript → JSCore₀
 
-The extractor is a TypeScript compiler plugin (~1000 LOC). Straightforward syntax-directed translation:
+The extractor is a TypeScript compiler plugin (~1000 LOC). It produces one `<name>_jscore.lean` file per `.ts` source file, consolidating all annotated functions. Re-running the extractor preserves existing proofs via a merge step: new `def` bodies and theorem statements are regenerated, but non-sorry proof bodies, private helpers, and extra imports from the existing file are spliced back in. Straightforward syntax-directed translation:
 
 | TypeScript                          | JSCore₀                                                      |
 | ----------------------------------- | ------------------------------------------------------------ |
@@ -678,15 +678,15 @@ This system assumes agents can generate Lean 4 proofs — a strong assumption, b
 ## File Structure
 
 ```
-jscore/
+jscore/                               -- Lean formalism
 ├── JSCore/
-│   ├── Syntax.lean            -- Expr, BinOp, UnOp           (~100 LOC)
-│   ├── Values.lean            -- Val, Env, Store, lookup      (~120 LOC)
-│   ├── Eval.lean              -- eval, evalForOf, evalWhile   (~600 LOC)
-│   ├── Trace.lean             -- CallRecord, callsTo, before  (~150 LOC)
-│   ├── Properties.lean        -- FnDecl, Invariant, requires  (~200 LOC)
-│   ├── Taint.lean             -- taintedBy, notTaintedIn      (~200 LOC)
-│   ├── StringPredicates.lean  -- startsWith, contains, mem   (~80 LOC)
+│   ├── Syntax.lean                   -- Expr, BinOp, UnOp           (~100 LOC)
+│   ├── Values.lean                   -- Val, Env, Store, lookup      (~120 LOC)
+│   ├── Eval.lean                     -- eval, evalForOf, evalWhile   (~600 LOC)
+│   ├── Trace.lean                    -- CallRecord, callsTo, before  (~150 LOC)
+│   ├── Properties.lean               -- FnDecl, Invariant, requires  (~200 LOC)
+│   ├── Taint.lean                    -- taintedBy, notTaintedIn      (~200 LOC)
+│   ├── StringPredicates.lean         -- startsWith, contains, mem   (~80 LOC)
 │   ├── Metatheory/
 │   │   ├── EvalEq.lean              -- equation lemmas         (~250 LOC)
 │   │   ├── TraceComposition.lean                              (~90 LOC)
@@ -700,6 +700,24 @@ jscore/
 ├── JSCore.lean
 └── lakefile.lean
                                               Total: ~2,870 LOC
+
+extractor/src/                        -- TS → Lean extraction
+├── ast-to-jscore.ts                  -- ts-morph AST → JsCoreExpr
+├── lean-emitter.ts                   -- JsCoreExpr → Lean source text
+├── lean-theorem.ts                   -- annotations → theorem statements
+├── annotation-parser.ts              -- @requires/@invariant/@ensures parsing
+├── proof-merge.ts                    -- proof-preserving regeneration
+├── reassignment.ts                   -- letConst vs letMut analysis
+├── type-translator.ts                -- TS types → Val predicates
+├── extract.ts                        -- pipeline orchestration
+└── index.ts                          -- CLI entry point
+
+examples/                             -- annotated TS + generated Lean
+├── rotateApiKey.ts                   -- source with annotations
+├── rotateApiKey_jscore.lean          -- extracted + proved
+├── scopedUpdate.ts                   -- multi-function source
+├── scopedUpdate_jscore.lean          -- consolidated (lookupProject + scopedUpdate)
+└── lakefile.lean
 ```
 
 ---

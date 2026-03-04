@@ -4,7 +4,7 @@
 
 import { Project, SourceFile, SyntaxKind, FunctionDeclaration, Node, TypeLiteralNode } from "ts-morph";
 import { extractFunction, JsCoreExpr } from "./ast-to-jscore";
-import { emitLean, emitLeanFile } from "./lean-emitter";
+import { emitLean, emitLeanFileMulti, FunctionEntry } from "./lean-emitter";
 import {
   parseAnnotations,
   extractFunctionAnnotations,
@@ -14,34 +14,41 @@ import {
   EnsuresAnnotation,
 } from "./annotation-parser";
 import { generateTheorem } from "./lean-theorem";
+import { mergeProofs } from "./proof-merge";
 import * as fs from "fs";
 import * as path from "path";
 
 export interface ExtractionResult {
-  functionName: string;
-  leanSource: string;
-  hasSorry: boolean;
-  invariantCount: number;
-  requiresCount: number;
+  sourceFile: string;
+  outPath: string;
+  functions: {
+    functionName: string;
+    hasSorry: boolean;
+    invariantCount: number;
+    requiresCount: number;
+  }[];
 }
 
 /**
  * Extract all annotated functions from a TypeScript source file.
+ * Produces one .lean file per .ts file (consolidating all functions).
  */
 export function extractFile(
   filePath: string,
   project: Project,
   outputDir: string
-): ExtractionResult[] {
+): ExtractionResult | null {
   const sourceFile = project.addSourceFileAtPath(filePath);
   const checker = project.getTypeChecker();
-  const results: ExtractionResult[] = [];
 
   // Collect untainted call targets from declare blocks
   const untaintedCalls = collectDeclareUntaints(sourceFile);
 
   // Find all function declarations with annotations
   const functions = sourceFile.getFunctions();
+
+  const entries: FunctionEntry[] = [];
+  const funcResults: ExtractionResult["functions"] = [];
 
   for (const func of functions) {
     const name = func.getName();
@@ -83,25 +90,39 @@ export function extractFile(
       }, untaintedCalls);
     });
 
-    // Emit Lean file
-    const leanSource = emitLeanFile(name, expr, params, theorems);
-
-    // Write to output
-    const pascalName = name[0].toUpperCase() + name.slice(1);
-    const outPath = path.join(outputDir, `${pascalName}.lean`);
-    fs.mkdirSync(outputDir, { recursive: true });
-    fs.writeFileSync(outPath, leanSource);
-
-    results.push({
+    entries.push({ name, expr, params, theorems });
+    funcResults.push({
       functionName: name,
-      leanSource,
       hasSorry,
       invariantCount: invs.length,
       requiresCount: reqs.length,
     });
   }
 
-  return results;
+  if (entries.length === 0) return null;
+
+  // Emit consolidated Lean file
+  const leanSource = emitLeanFileMulti(entries);
+
+  // Output filename: camelCase basename + _jscore.lean
+  const baseName = path.basename(filePath, ".ts");
+  const outPath = path.join(outputDir, `${baseName}_jscore.lean`);
+  fs.mkdirSync(outputDir, { recursive: true });
+
+  // Merge with existing file to preserve proofs
+  let finalSource = leanSource;
+  if (fs.existsSync(outPath)) {
+    const existing = fs.readFileSync(outPath, "utf-8");
+    finalSource = mergeProofs(leanSource, existing);
+  }
+
+  fs.writeFileSync(outPath, finalSource);
+
+  return {
+    sourceFile: filePath,
+    outPath,
+    functions: funcResults,
+  };
 }
 
 /**
@@ -120,8 +141,8 @@ export function extractFiles(
   const allResults: ExtractionResult[] = [];
 
   for (const filePath of filePaths) {
-    const results = extractFile(filePath, project, outputDir);
-    allResults.push(...results);
+    const result = extractFile(filePath, project, outputDir);
+    if (result) allResults.push(result);
   }
 
   return allResults;

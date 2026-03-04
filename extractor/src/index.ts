@@ -90,15 +90,19 @@ function runExtract(
 ): ExtractionResult[] {
   const results = extractFiles(filePaths, outputDir, tsConfig);
 
+  let totalFunctions = 0;
   for (const r of results) {
-    const status = r.hasSorry ? "sorry" : "ok";
-    const outPath = path.join(outputDir, `${r.functionName}.lean`);
-    console.log(
-      `  ${r.functionName}: ${status} (${r.invariantCount} invariants, ${r.requiresCount} requires) → ${outPath}`
-    );
+    console.log(`  ${r.outPath}`);
+    for (const fn of r.functions) {
+      const status = fn.hasSorry ? "sorry" : "ok";
+      console.log(
+        `    ${fn.functionName}: ${status} (${fn.invariantCount} invariants, ${fn.requiresCount} requires)`
+      );
+      totalFunctions++;
+    }
   }
 
-  console.log(`\nExtracted ${results.length} function(s) to ${outputDir}`);
+  console.log(`\nExtracted ${totalFunctions} function(s) in ${results.length} file(s) to ${outputDir}`);
   return results;
 }
 
@@ -141,30 +145,32 @@ function runCoverage(
     return;
   }
 
-  let totalInvariants = 0;
+  let totalFunctions = 0;
   let totalSorry = 0;
   let totalProved = 0;
 
   console.log("\n--- Coverage Report ---\n");
 
   for (const r of results) {
-    totalInvariants += r.invariantCount;
-    if (r.hasSorry) {
-      totalSorry++;
-    } else {
-      totalProved++;
-    }
+    for (const fn of r.functions) {
+      totalFunctions++;
+      if (fn.hasSorry) {
+        totalSorry++;
+      } else {
+        totalProved++;
+      }
 
-    const icon = r.hasSorry ? "[ ]" : "[x]";
-    console.log(
-      `${icon} ${r.functionName} — ${r.invariantCount} invariant(s), ${r.requiresCount} require(s)`
-    );
+      const icon = fn.hasSorry ? "[ ]" : "[x]";
+      console.log(
+        `${icon} ${fn.functionName} — ${fn.invariantCount} invariant(s), ${fn.requiresCount} require(s)`
+      );
+    }
   }
 
-  console.log(`\nTotal: ${results.length} functions`);
+  console.log(`\nTotal: ${totalFunctions} functions`);
   console.log(`  Proved:  ${totalProved}`);
   console.log(`  Sorry:   ${totalSorry}`);
   console.log(
-    `  Coverage: ${results.length > 0 ? ((totalProved / results.length) * 100).toFixed(1) : 0}%`
+    `  Coverage: ${totalFunctions > 0 ? ((totalProved / totalFunctions) * 100).toFixed(1) : 0}%`
   );
 }

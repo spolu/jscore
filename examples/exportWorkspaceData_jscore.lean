@@ -1,14 +1,25 @@
 import JSCore.Syntax
+
 import JSCore.Values
+
 import JSCore.Eval
+
 import JSCore.Trace
+
 import JSCore.Properties
+
 import JSCore.Taint
+
 import JSCore.Tactics
+
+
 import JSCore.Metatheory.EvalEq
+
 import JSCore.Metatheory.TraceComposition
 
+
 open JSCore
+
 
 def exportWorkspaceData_body : Expr :=
   (.call "db.projects.findMany"
@@ -31,7 +42,7 @@ def exportWorkspaceData_body : Expr :=
           ("tasks", (.var "tasks"))
         ]))))
 
--- argAtPath helper for "where.workspaceId" path
+
 private theorem argAtPath_where_wsId (target : String) (resultId : String) (wsId : Val) :
     argAtPath { target := target,
                 args := [("where", Val.obj [("workspaceId", wsId)])],
@@ -43,6 +54,7 @@ private theorem argAtPath_where_wsId (target : String) (resultId : String) (wsId
              h2, h3, ite_true, ite_false]
 
 -- Helper: evaluate arg obj [("workspaceId", .field (.var "auth") "workspaceId")]
+
 private theorem eval_arg_obj (n : Nat) (env : Env) (store : Store)
     (fields : List (String × Val)) (wsVal : Val)
     (h_env : env "auth" = some (Val.obj fields))
@@ -59,6 +71,7 @@ private theorem eval_arg_obj (n : Nat) (env : Env) (store : Store)
              List.nil_append, List.append_nil]
 
 -- Helper: ret of obj of vars has no db.* calls in trace
+
 private theorem ret_obj_vars_no_calls (env : Env) (store : Store) :
     callsTo (eval 4 env store
       (.ret (.obj [("projects", .var "projects"), ("tasks", .var "tasks")]))).trace "db.*" = [] := by
@@ -77,6 +90,7 @@ private theorem ret_obj_vars_no_calls (env : Env) (store : Store) :
   rw [h_t]; rfl
 
 -- Main theorem
+
 theorem exportWorkspaceData_ws_isolation
     (fuel : Nat)
     (auth : Val)
@@ -146,6 +160,7 @@ theorem exportWorkspaceData_ws_isolation
       rw [h_no_calls] at h2b
       exact List.not_mem_nil c h2b
 
+
 theorem exportWorkspaceData_ws_isolation_canonical
     (fuel : Nat)
     (auth : Val)
@@ -164,14 +179,18 @@ theorem exportWorkspaceData_ws_isolation_canonical
     (by simp [emptyStore])
     h_req_0 h_fuel c hc
 
+
 theorem exportWorkspaceData_read_only
     : (callExprsIn exportWorkspaceData_body "db.*.update").length = 0 := by
   native_decide
+
 
 theorem exportWorkspaceData_read_only_1
     : (callExprsIn exportWorkspaceData_body "db.*.create").length = 0 := by
   native_decide
 
+
 theorem exportWorkspaceData_read_only_2
     : (callExprsIn exportWorkspaceData_body "db.*.delete").length = 0 := by
   native_decide
+

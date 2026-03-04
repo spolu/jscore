@@ -9,25 +9,19 @@ package examples where
 require jscore from ".." / "jscore"
 
 @[default_target]
-lean_lib ExportWorkspaceData
+lean_lib exportWorkspaceData_jscore
 
 @[default_target]
-lean_lib ReorderTasks
+lean_lib reorderTasks_jscore
 
 @[default_target]
-lean_lib RotateApiKey
+lean_lib rotateApiKey_jscore
 
 @[default_target]
-lean_lib taintSafeLiteral
+lean_lib scopedUpdate_jscore
 
 @[default_target]
-lean_lib SignAndLog
+lean_lib signAndLog_jscore
 
 @[default_target]
-lean_lib LeakyLog
-
-@[default_target]
-lean_lib LookupProject
-
-@[default_target]
-lean_lib ScopedUpdate
+lean_lib taintSafeLiteral_jscore

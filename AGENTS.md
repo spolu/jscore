@@ -50,16 +50,20 @@ Modules imported in dependency order by `jscore/JSCore.lean`:
 ### Extractor (`extractor/src/`)
 
 - **ast-to-jscore.ts** — ts-morph AST → `JsCoreExpr`. Processes statements in CPS style (each statement's body is `rest()`).
-- **lean-emitter.ts** — `JsCoreExpr` → Lean 4 source text.
+- **lean-emitter.ts** — `JsCoreExpr` → Lean 4 source text. `emitLeanFileMulti` emits one file with multiple function defs + theorems.
 - **lean-theorem.ts** — Annotations → Lean theorem statements. Three shapes: taint (native_decide), nonexistence (native_decide), runtime ∀ (sorry for agents).
 - **annotation-parser.ts** — Parses `@requires`/`@invariant`/`@ensures` from TS comments. Multi-line via continuation lines.
 - **reassignment.ts** — Determines letConst vs letMut based on reassignment analysis.
 - **type-translator.ts** — TS types → Lean Val predicates.
+- **proof-merge.ts** — Proof-preserving merge: when regenerating a `.lean` file, splices existing non-sorry proof bodies back into the fresh skeleton. Also preserves private helpers, abbrevs, and unions imports from both files.
 
 ### Extracted Lean file structure
 
-Each extracted function produces: a `def <name>_body : Expr` with the expression tree, then theorems. Syntactic theorems (taint, nonexistence) close with `native_decide`. Runtime theorems have `sorry` for agents to fill using metatheory lemmas.
-Lean outputs should be generated under `examples/`, collocated with their `.ts` source files (not under a separate `generated/` directory).
+One `_jscore.lean` file per `.ts` source file, named `<camelCaseBaseName>_jscore.lean` (e.g. `scopedUpdate.ts` → `scopedUpdate_jscore.lean`). Multiple annotated functions in one `.ts` file are consolidated into a single `.lean` file.
+
+Each function produces: a `def <name>_body : Expr` with the expression tree, then theorems. Syntactic theorems (taint, nonexistence) close with `native_decide`. Runtime theorems have `sorry` for agents to fill using metatheory lemmas.
+
+Lean outputs are generated under `examples/`, collocated with their `.ts` source files. Re-running the extractor on an existing file preserves proofs via the merge logic in `proof-merge.ts`.
 
 ## Lean 4 v4.16.0 Gotchas
 

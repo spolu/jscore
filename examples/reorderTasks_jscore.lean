@@ -1,15 +1,27 @@
 import JSCore.Syntax
+
 import JSCore.Values
+
 import JSCore.Eval
+
 import JSCore.Trace
+
 import JSCore.Properties
+
 import JSCore.Taint
+
 import JSCore.Tactics
+
+
 import JSCore.Metatheory.EvalEq
+
 import JSCore.Metatheory.TraceComposition
+
 import JSCore.Metatheory.ForOfCallsTo
 
+
 open JSCore
+
 
 def reorderTasks_body : Expr :=
   (.seq
@@ -26,6 +38,7 @@ def reorderTasks_body : Expr :=
         Expr.none))
     Expr.none)
 
+
 abbrev loop_body : Expr :=
   .call "db.task.update"
     [("where", (.obj [("id", (.var "taskId")), ("projectId", (.var "projectId"))])),
@@ -34,6 +47,7 @@ abbrev loop_body : Expr :=
     Expr.none
 
 -- argAtPath computation helper: string ops via native_decide, structure via simp
+
 private theorem argAtPath_where_pid (id_val pid_val : Val) :
     argAtPath { target := "db.task.update",
                 args := [("where", Val.obj [("id", id_val), ("projectId", pid_val)]),
@@ -47,6 +61,7 @@ private theorem argAtPath_where_pid (id_val pid_val : Val) :
              h2, h3, h4, ite_true, ite_false]
 
 -- Helper: single iteration properties (store invariant + callsTo property)
+
 private theorem loop_body_props (env : Env) (store : Store) (elem projectId : Val)
     (h_env : env "projectId" = some projectId)
     (h_store : store "projectId" = none) :
@@ -82,6 +97,7 @@ private theorem loop_body_props (env : Env) (store : Store) (elem projectId : Va
     exact argAtPath_where_pid tid projectId
 
 -- Step through outer eval to expose the foldl
+
 private theorem eval_outer_trace (env : Env) (store : Store) (elems : List Val)
     (h_store_tasks : store "tasks" = none)
     (h_env_tasks : env "tasks" = some (Val.arr elems)) :
@@ -99,6 +115,7 @@ private theorem eval_outer_trace (env : Env) (store : Store) (elems : List Val)
   rfl
 
 -- Non-array tasks produces no db.* calls
+
 private theorem non_arr_no_calls (env : Env) (store : Store) (tasks : Val)
     (h_store_tasks : store "tasks" = none)
     (h_env_tasks : env "tasks" = some tasks)
@@ -116,6 +133,7 @@ private theorem non_arr_no_calls (env : Env) (store : Store) (tasks : Val)
   | arr elems => exact absurd rfl (h_not_arr elems)
   | str _ | num _ | bool _ | none | obj _ =>
     simp only [callsTo, extractCalls, List.filterMap, List.filter]
+
 
 theorem reorderTasks_ws_isolation
     (fuel : Nat)
@@ -160,3 +178,4 @@ theorem reorderTasks_ws_isolation
       rw [h_tasks]; intro elems; exact Val.noConfusion
     rw [non_arr_no_calls env store tasks h_store_tasks h_env_tasks h_not_arr] at hc
     exact absurd hc (List.not_mem_nil c)
+

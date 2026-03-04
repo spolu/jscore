@@ -189,7 +189,7 @@ function escapeLeanString(s: string): string {
 }
 
 /**
- * Emit a complete Lean 4 file for a function definition.
+ * Emit a complete Lean 4 file for a single function definition.
  */
 export function emitLeanFile(
   functionName: string,
@@ -197,6 +197,21 @@ export function emitLeanFile(
   params: string[],
   theorems: string[]
 ): string {
+  return emitLeanFileMulti([{ name: functionName, expr, params, theorems }]);
+}
+
+export interface FunctionEntry {
+  name: string;
+  expr: JsCoreExpr;
+  params: string[];
+  theorems: string[];
+}
+
+/**
+ * Emit a complete Lean 4 file with multiple function definitions + theorems.
+ * Imports are emitted once at the top.
+ */
+export function emitLeanFileMulti(functions: FunctionEntry[]): string {
   const lines: string[] = [];
 
   lines.push("import JSCore.Syntax");
@@ -210,18 +225,18 @@ export function emitLeanFile(
   lines.push("open JSCore");
   lines.push("");
 
-  // Emit the definition
-  lines.push(`def ${functionName}_body : Expr :=`);
-  lines.push(emitLean(expr, 1));
-  lines.push("");
-
-  // Emit theorems
-  for (const thm of theorems) {
-    lines.push(thm);
+  for (const fn of functions) {
+    // Emit the definition
+    lines.push(`def ${fn.name}_body : Expr :=`);
+    lines.push(emitLean(fn.expr, 1));
     lines.push("");
-  }
 
-  // no end needed with open
+    // Emit theorems
+    for (const thm of fn.theorems) {
+      lines.push(thm);
+      lines.push("");
+    }
+  }
 
   return lines.join("\n");
 }
