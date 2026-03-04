@@ -127,23 +127,25 @@ const fromAccount = await db.account.findUnique({ where: { id: fromId } });
 // @ensures fromAccount.id = fromId
 ```
 
-The generated Lean proof universally quantifies over `resultVal` with the combined constraint — the TS type predicate plus the `@ensures`:
+The extractor transforms the call body: the call result is bound to an internal name (`__call_N`), and the original binding reads from a universally quantified ensures parameter (`__ensures_fromAccount`) instead. The `@ensures` predicates become hypotheses constraining this parameter:
 
 ```lean
-∀ resultVal,
-  -- Combined constraint: TS type + @ensures, under the same binder:
-  (resultVal = Val.none ∨
-   ∃ fields, resultVal = Val.obj fields ∧
-     -- From TypeScript type (Account):
-     (∃ s, fieldLookup fields "id" = some (Val.str s)) ∧
-     (∃ n, fieldLookup fields "balance" = some (Val.num n)) ∧
-     (∃ s, fieldLookup fields "workspaceId" = some (Val.str s)) ∧
-     -- From @ensures (nested under the same ∃ fields):
-     fieldLookup fields "id" = some (Val.str fromId)) →
-  -- ... proof that invariants hold for all such resultVal
+-- Body transformation: call result renamed, original binding reads ensures param
+(.call "db.account.findUnique" [("where", ...)] "__call_0"
+  (.letConst "fromAccount" (.var "__ensures_fromAccount") ⟦rest⟧))
+
+-- Theorem hypotheses:
+(__ensures_fromAccount : Val)
+(h_env___ensures_fromAccount : env "__ensures_fromAccount" = some __ensures_fromAccount)
+(h_store___ensures_fromAccount : store "__ensures_fromAccount" = none)
+-- From @ensures fromAccount.id = fromId:
+(h_ensures_0 : Val.field' __ensures_fromAccount "id" = some fromId)
+-- From @ensures fromAccount.workspaceId = auth.workspaceId:
+(h_ensures_1 : Val.field' __ensures_fromAccount "workspaceId"
+  = Val.field' auth "workspaceId")
 ```
 
-The TS type gives structure (field existence and types), `@ensures` gives semantics (field values and relationships). Together they constrain the universally quantified result tightly enough for proofs to close, without modeling callee internals.
+The ensures parameter replaces the call result in the program's data flow. Proofs reason about `__ensures_fromAccount` using the `h_ensures` hypotheses — exactly the semantic properties the human annotated. TS type predicates give structure (field existence and types), `@ensures` gives semantics (field values and relationships). Together they constrain the result tightly enough for proofs to close, without modeling callee internals.
 
 `@ensures` annotations are trusted assumptions, not proved. If the external call violates them at runtime, the proof is sound over wrong assumptions. This is acceptable because the TS type predicates come from the type checker (already trusted by the codebase), and the `@ensures` properties typically follow from database schemas, API contracts, or query semantics — each a single human-readable line tied to a specific binding.
 
@@ -374,7 +376,7 @@ All verification is about propositions over traces. Most trace queries operate o
   mkResult r.outcome r.store (callTrace ++ r.trace)
 ```
 
-In the formalization, call results are bound as `Val.none` — external call semantics are not modeled. The `@ensures` annotations and TypeScript type predicates appear as hypotheses in the theorem statement, universally quantified over possible result values. Invariants are proved over the trace *as actually produced*. An invariant like `∀ call db.*.update (u) => ...` holds vacuously if the update call never executes due to an earlier failure — the guarantee is: every call that *does appear* in the trace satisfies the property.
+In the formalization, call results are bound as `Val.none` — external call semantics are not modeled. When a call has `@ensures` annotations, the extractor transforms the body so the original binding reads from a universally quantified ensures parameter instead of the call result (see `@ensures` section above). The `@ensures` predicates and TypeScript type predicates appear as hypotheses constraining this parameter. Invariants are proved over the trace *as actually produced*. An invariant like `∀ call db.*.update (u) => ...` holds vacuously if the update call never executes due to an earlier failure — the guarantee is: every call that *does appear* in the trace satisfies the property.
 
 **`ite`** — both branches produce separate traces; only one executes:
 
@@ -693,7 +695,7 @@ jscore/
 │   │   ├── LoopInvariant.lean                                 (~60 LOC)
 │   │   ├── ConditionalCoverage.lean                           (~30 LOC)
 │   │   ├── Composition.lean                                   (~40 LOC)
-│   │   └── TaintSoundness.lean                                (~20 LOC, sorry)
+│   │   └── TaintSoundness.lean                                (~20 LOC)
 │   └── Tactics.lean                                           (~400 LOC)
 ├── JSCore.lean
 └── lakefile.lean
