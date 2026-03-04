@@ -102,10 +102,7 @@ private theorem loop_body_props (env : Env) (store : Store) (elem projectId : Va
     refine ⟨trivial, ?_⟩
     intro c hc
     have h_pat : matchesPattern "db.task.update" "db.*" = true := by native_decide
-    simp only [callsTo, extractCalls, List.filterMap, List.filter, h_pat,
-      List.mem_cons, List.mem_nil_iff, or_false, ite_true, ite_false,
-      decide_true, decide_false, Bool.true_and, Bool.and_true] at hc
-    subst hc
+    have := mem_callsTo_singleton h_pat hc; subst this
     exact argAtPath_where_pid elem projectId
   | some tid =>
     have h_l_tid : lookup (Env.set env "taskId" elem) store "taskId" = some tid := by
@@ -118,10 +115,7 @@ private theorem loop_body_props (env : Env) (store : Store) (elem projectId : Va
     refine ⟨trivial, ?_⟩
     intro c hc
     have h_pat : matchesPattern "db.task.update" "db.*" = true := by native_decide
-    simp only [callsTo, extractCalls, List.filterMap, List.filter, h_pat,
-      List.mem_cons, List.mem_nil_iff, or_false, ite_true, ite_false,
-      decide_true, decide_false, Bool.true_and, Bool.and_true] at hc
-    subst hc
+    have := mem_callsTo_singleton h_pat hc; subst this
     exact argAtPath_where_pid tid projectId
 
 -- Step through outer eval to expose the foldl
