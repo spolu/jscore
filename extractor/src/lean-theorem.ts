@@ -7,7 +7,7 @@
  *   3. ∀ call P (c) => pred   → runtime trace property                  (sorry)
  */
 
-import { RequiresAnnotation, InvariantAnnotation } from "./annotation-parser";
+import { RequiresAnnotation, InvariantAnnotation, EnsuresAnnotation } from "./annotation-parser";
 
 interface SyntacticInvariantTranslation {
   kind: "syntactic";
@@ -37,9 +37,11 @@ export function generateTheorem(
   functionName: string,
   invariant: InvariantAnnotation,
   requires: RequiresAnnotation[],
+  ensures: EnsuresAnnotation[],
   params: string[],
   tagIndex: number = 0,
-  options?: TheoremGenerationOptions
+  options?: TheoremGenerationOptions,
+  untaintedCalls?: string[]
 ): string {
   const tag = sanitizeTag(invariant.tag);
   const thmName =
@@ -48,7 +50,8 @@ export function generateTheorem(
   const translation = translateInvariantToLean(
     invariant.prop,
     functionName,
-    params
+    params,
+    untaintedCalls
   );
 
   if (translation.kind === "syntactic") {
@@ -87,6 +90,18 @@ export function generateTheorem(
   for (const hyp of requireHyps) {
     lines.push(hyp);
   }
+
+  // Ensures parameters and hypotheses
+  for (let i = 0; i < ensures.length; i++) {
+    const ens = ensures[i];
+    const ensParam = `__ensures_${ens.binding}`;
+    lines.push(`    (${ensParam} : Val)`);
+    lines.push(`    (h_env_${ensParam} : env "${ensParam}" = some ${ensParam})`);
+    lines.push(`    (h_store_${ensParam} : store "${ensParam}" = none)`);
+    const ensPred = translateEnsuresPred(ens, params, i);
+    lines.push(`    (h_ensures_${i} : ${ensPred})`);
+  }
+
   lines.push(`    (h_fuel : fuel = ${runtimeFuel})`);
 
   lines.push(
@@ -115,7 +130,8 @@ export function generateTheorem(
 function translateInvariantToLean(
   prop: string,
   functionName: string,
-  params: string[]
+  params: string[],
+  untaintedCalls?: string[]
 ): InvariantTranslation {
   prop = prop.trim();
 
@@ -125,9 +141,27 @@ function translateInvariantToLean(
   );
   if (taintMatch) {
     const [, source, pattern] = taintMatch;
+    const ucList = untaintedCalls && untaintedCalls.length > 0
+      ? ` [${untaintedCalls.map(c => `"${c}"`).join(", ")}]`
+      : "";
     return {
       kind: "syntactic",
-      conclusion: `notTaintedIn ${functionName}_body "${source}" "${pattern}" = true`,
+      conclusion: `notTaintedIn ${functionName}_body "${source}" "${pattern}"${ucList} = true`,
+    };
+  }
+
+  // tainted <binding> in call <pattern> → purely syntactic (positive: taint DOES leak)
+  const positiveTaintMatch = prop.match(
+    /^tainted\s+(\w+)\s+in\s+call\s+(\S+)/
+  );
+  if (positiveTaintMatch) {
+    const [, source, pattern] = positiveTaintMatch;
+    const ucList = untaintedCalls && untaintedCalls.length > 0
+      ? ` [${untaintedCalls.map(c => `"${c}"`).join(", ")}]`
+      : "";
+    return {
+      kind: "syntactic",
+      conclusion: `notTaintedIn ${functionName}_body "${source}" "${pattern}"${ucList} = false`,
     };
   }
 
@@ -161,6 +195,44 @@ function translateInvariantToLean(
     pattern: "*",
     predicate: `True /- TODO invariant: ${sanitizeTodo(prop)} -/`,
   };
+}
+
+/**
+ * Translate an @ensures predicate to a Lean hypothesis.
+ * @ensures item.workspaceId = auth.workspaceId →
+ *   Option.bind (some __ensures_item) (fun __v => Val.field' __v "workspaceId") =
+ *   Option.bind (some auth) (fun __v => Val.field' __v "workspaceId")
+ */
+function translateEnsuresPred(
+  ens: EnsuresAnnotation,
+  params: string[],
+  _ensIndex: number
+): string {
+  const pred = ens.pred.trim();
+
+  // <field> = <expr> pattern
+  const eqMatch = pred.match(/^(\w+(?:\.\w+)*)\s*(=|≠)\s*(.+)$/);
+  if (eqMatch) {
+    const [, leftPath, op, rightRaw] = eqMatch;
+    const leanOp = op === "=" ? "=" : "≠";
+    // Left side: field access on the ensures parameter
+    const leftAccess = translateAccessAsOption(
+      `${ens.binding}.${leftPath}`,
+      [...params, ens.binding],
+      // Treat the binding as a param-like name so it resolves to `some __ensures_<binding>`
+    );
+    // Override: the binding should resolve to __ensures_<binding>
+    const leftOverride = leftAccess.replace(
+      `some ${ens.binding}`,
+      `some __ensures_${ens.binding}`
+    );
+    const rightAccess = parseTermAsOption(rightRaw.trim(), params);
+    if (rightAccess) {
+      return `${leftOverride} ${leanOp} ${rightAccess}`;
+    }
+  }
+
+  return `True /- TODO @ensures: ${ens.binding}.${sanitizeTodo(pred)} -/`;
 }
 
 function translateCallPred(

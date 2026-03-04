@@ -56,11 +56,17 @@ export type JsCoreExpr =
   | { tag: "unOp"; op: string; operand: JsCoreExpr }
   | { tag: "sorry"; reason: string };
 
+export interface EnsuresInfo {
+  binding: string;
+  paramName: string; // "__ensures_<binding>" — the env-bound parameter
+}
+
 interface ExtractionContext {
   checker: TypeChecker;
   reassigned: Set<string>;
   freshCounter: number;
   defaultFuel: number;
+  ensuresBindings: Set<string>; // bindings that have @ensures annotations
 }
 
 function freshName(ctx: ExtractionContext, prefix: string = "__fresh"): string {
@@ -73,7 +79,8 @@ function freshName(ctx: ExtractionContext, prefix: string = "__fresh"): string {
 export function extractFunction(
   node: Node,
   checker: TypeChecker,
-  defaultFuel: number = 1000
+  defaultFuel: number = 1000,
+  ensuresBindings: Set<string> = new Set()
 ): JsCoreExpr {
   const body = getFunctionBody(node);
   if (!body) {
@@ -86,6 +93,7 @@ export function extractFunction(
     reassigned,
     freshCounter: 0,
     defaultFuel,
+    ensuresBindings,
   };
 
   return extractBlock(body, ctx);
@@ -248,13 +256,32 @@ function extractVariableStatement(
     // Check if this is an await call
     if (isAwaitCall(initializer)) {
       const callInfo = extractAwaitCall(initializer!, ctx);
-      body = {
-        tag: "call",
-        target: callInfo.target,
-        args: callInfo.args,
-        resultBinder: name,
-        body,
-      };
+      // If this binding has @ensures, split: call binds a void name,
+      // then letConst binds the real name from an ensures parameter.
+      if (ctx.ensuresBindings.has(name)) {
+        const callBinder = freshName(ctx, "__call");
+        const ensuresParam = `__ensures_${name}`;
+        body = {
+          tag: "call",
+          target: callInfo.target,
+          args: callInfo.args,
+          resultBinder: callBinder,
+          body: {
+            tag: "letConst",
+            name,
+            value: { tag: "var", name: ensuresParam },
+            body,
+          },
+        };
+      } else {
+        body = {
+          tag: "call",
+          target: callInfo.target,
+          args: callInfo.args,
+          resultBinder: name,
+          body,
+        };
+      }
       continue;
     }
 

@@ -162,6 +162,18 @@ theorem eval_obj_eq {n : Nat} {env : Env} {store : Store} {pairs : List (String 
     ) ([], store, [])
     mkResult (.ok (.obj result.1)) result.2.1 result.2.2) := rfl
 
+theorem eval_binOp_eq {n : Nat} {env : Env} {store : Store}
+    {op : BinOp} {e1 e2 : Expr} :
+    eval (n + 1) env store (Expr.binOp op e1 e2) =
+    (let r1 := eval n env store e1
+     match r1.outcome with
+     | .ok v1 =>
+       let r2 := eval n env r1.store e2
+       match r2.outcome with
+       | .ok v2 => mkResult (evalBinOp op v1 v2) r2.store (r1.trace ++ r2.trace)
+       | _ => r2
+     | _ => r1) := rfl
+
 theorem eval_break_eq {n : Nat} {env : Env} {store : Store} :
     eval (n + 1) env store Expr.«break» = mkResult .brk store [] := rfl
 

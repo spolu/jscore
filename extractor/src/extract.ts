@@ -2,14 +2,16 @@
  * Pipeline orchestration — coordinates extraction from TS source to Lean files.
  */
 
-import { Project, SourceFile, SyntaxKind, FunctionDeclaration, Node } from "ts-morph";
+import { Project, SourceFile, SyntaxKind, FunctionDeclaration, Node, TypeLiteralNode } from "ts-morph";
 import { extractFunction, JsCoreExpr } from "./ast-to-jscore";
 import { emitLean, emitLeanFile } from "./lean-emitter";
 import {
   parseAnnotations,
   extractFunctionAnnotations,
+  extractEnsuresAnnotations,
   RequiresAnnotation,
   InvariantAnnotation,
+  EnsuresAnnotation,
 } from "./annotation-parser";
 import { generateTheorem } from "./lean-theorem";
 import * as fs from "fs";
@@ -35,6 +37,9 @@ export function extractFile(
   const checker = project.getTypeChecker();
   const results: ExtractionResult[] = [];
 
+  // Collect untainted call targets from declare blocks
+  const untaintedCalls = collectDeclareUntaints(sourceFile);
+
   // Find all function declarations with annotations
   const functions = sourceFile.getFunctions();
 
@@ -52,8 +57,12 @@ export function extractFile(
     // Skip functions with no annotations
     if (reqs.length === 0 && invs.length === 0) continue;
 
+    // Collect @ensures from inline comments in the function body
+    const bodyEnsures = collectInlineEnsures(func);
+    const ensuresBindings = new Set(bodyEnsures.map((e) => e.binding));
+
     // Extract the function body
-    const expr = extractFunction(func, checker);
+    const expr = extractFunction(func, checker, 1000, ensuresBindings);
 
     // Check for sorry
     const hasSorry = containsSorry(expr);
@@ -68,10 +77,10 @@ export function extractFile(
     const theorems = invs.map((inv) => {
       const count = tagCounts.get(inv.tag) ?? 0;
       tagCounts.set(inv.tag, count + 1);
-      return generateTheorem(name, inv, reqs, params, count, {
+      return generateTheorem(name, inv, reqs, bodyEnsures, params, count, {
         runtimeFuel,
         emitCanonicalRuntimeTheorem,
-      });
+      }, untaintedCalls);
     });
 
     // Emit Lean file
@@ -245,6 +254,68 @@ function depthFuel(expr: JsCoreExpr): number {
     case "sorry":
       return 1;
   }
+}
+
+/**
+ * Collect @ensures annotations from inline comments within a function body.
+ * Scans all descendant nodes for leading comment ranges containing @ensures.
+ */
+function collectInlineEnsures(func: Node): EnsuresAnnotation[] {
+  const ensures: EnsuresAnnotation[] = [];
+  func.forEachDescendant((node) => {
+    const commentRanges = node.getLeadingCommentRanges();
+    for (const cr of commentRanges) {
+      const text = cr.getText();
+      const found = extractEnsuresAnnotations([text]);
+      ensures.push(...found);
+    }
+  });
+  // Deduplicate by binding name (same binding may be found multiple times
+  // due to overlapping descendant traversal)
+  const seen = new Set<string>();
+  return ensures.filter((e) => {
+    const key = `${e.binding}.${e.pred}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/**
+ * Collect untainted call targets from declare blocks.
+ * Scans `declare const X: { method(...): ...; }` for methods annotated with
+ * `@invariant no-taint: ¬ tainted <param> in result` and returns call targets
+ * as "varName.methodName".
+ */
+function collectDeclareUntaints(sourceFile: SourceFile): string[] {
+  const untainted: string[] = [];
+
+  for (const stmt of sourceFile.getVariableStatements()) {
+    if (!stmt.hasDeclareKeyword()) continue;
+
+    for (const decl of stmt.getDeclarations()) {
+      const varName = decl.getName();
+      const typeNode = decl.getTypeNode();
+      if (!typeNode || typeNode.getKind() !== SyntaxKind.TypeLiteral) continue;
+
+      const typeLiteral = typeNode as TypeLiteralNode;
+      for (const member of typeLiteral.getMembers()) {
+        const memberName = member.getSymbol()?.getName();
+        if (!memberName) continue;
+
+        const commentRanges = member.getLeadingCommentRanges();
+        for (const cr of commentRanges) {
+          const text = cr.getText();
+          // Match: @invariant <tag>: ¬ tainted <param> in result
+          if (/¬\s*tainted\s+\w+\s+in\s+result/.test(text)) {
+            untainted.push(`${varName}.${memberName}`);
+          }
+        }
+      }
+    }
+  }
+
+  return untainted;
 }
 
 function isStraightLine(expr: JsCoreExpr): boolean {

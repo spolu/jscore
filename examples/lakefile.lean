@@ -21,13 +21,13 @@ lean_lib RotateApiKey
 lean_lib taintSafeLiteral
 
 @[default_target]
-lean_lib taintDirectLeak
+lean_lib SignAndLog
 
 @[default_target]
-lean_lib taintControlFlowConservative
+lean_lib LeakyLog
 
 @[default_target]
-lean_lib taintLetMutOverapprox
+lean_lib LookupProject
 
 @[default_target]
-lean_lib TaintTradeoffChecks
+lean_lib ScopedUpdate

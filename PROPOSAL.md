@@ -155,6 +155,7 @@ prop :=
   | ∃ call <pattern> (c) <order> => <pred>   -- at least one matching call
   | ¬ ∃ call <pattern>                       -- no matching calls exist
   | ¬ tainted <binding> in call <pattern>    -- binding never flows to call args
+  | tainted <binding> in call <pattern>      -- binding does flow to call args
   | return <pred>                            -- return value property
   | <expr> = <expr>
   | <expr> ≠ <expr>
@@ -517,42 +518,62 @@ def indexOf (v : Val) (vs : List Val) : Option Nat :=
 ### Taint tracking (static)
 
 ```lean
+-- Accumulator-based taint collection. acc starts as [source] and grows
+-- as bindings that transitively depend on source are discovered.
+-- untaintedCalls: call targets whose results do NOT propagate taint
+-- (declared via @invariant ¬ tainted X in result on the callee).
+def collectTaintedBindings (untaintedCalls : List String) (acc : List String)
+    : Expr → List String
+
+-- For letConst/letMut/assign: if freeVars of the RHS intersect acc, add the
+-- binding to acc. For call: if any arg is tainted AND target is NOT in
+-- untaintedCalls, add resultBinder to acc (call results taint by default).
+-- For ite: propagate through both branches and union the results.
+
 -- Does expression e transitively depend on binding source?
--- Computed over the program AST — no runtime component. Returns Bool.
-def taintedBy (prog : Expr) (source : String) (e : Expr) : Bool :=
-  let taintedBindings := source :: collectTaintedBindings source prog
-  (freeVars e).any (· ∈ taintedBindings)
+def taintedBy (prog : Expr) (source : String)
+    (untaintedCalls : List String) (e : Expr) : Bool :=
+  let taintedSet := collectTaintedBindings untaintedCalls [source] prog
+  (freeVars e).any (· ∈ taintedSet)
+
+-- Control-flow safety: no conditional guarding a matching call
+-- has its condition depend on source.
+def controlFlowSafe (source pattern : String) : Expr → Bool
 
 -- No call matching pattern has any argument that depends on source.
--- Includes conservative control-flow independence check. Returns Bool.
-def notTaintedIn (prog : Expr) (source pattern : String) : Bool :=
+def notTaintedIn (prog : Expr) (source pattern : String)
+    (untaintedCalls : List String := []) : Bool :=
+  let taintedSet := collectTaintedBindings untaintedCalls [source] prog
   let calls := callExprsIn prog pattern
   let argsIndependent := calls.all fun ci =>
-    ci.namedArgs.all fun (_, argExpr) => !taintedBy prog source argExpr
-  let controlIndependent := decide (source ∉ freeVars prog)
-  controlIndependent && argsIndependent
+    ci.namedArgs.all fun (_, argExpr) =>
+      !(freeVars argExpr).any (· ∈ taintedSet)
+  let cfSafe := controlFlowSafe source pattern prog
+  cfSafe && argsIndependent
 ```
 
 Taint is purely static — it walks the AST and follows binding chains. Sound for `letConst` (immutable) bindings, conservative for `letMut` (may over-approximate).
 
+**Call result taint (default-tainted).** When a tainted value is passed to an external call, the call's result is considered tainted by default. This prevents unsound gaps where `f(secret)` returns a value derived from secret but the analysis doesn't track it. To whitelist a function whose result genuinely doesn't propagate taint (e.g. a cryptographic HMAC that produces a fixed-size digest independent of the key's content), annotate the callee's declaration with `@invariant no-taint: ¬ tainted <param> in result`. The extractor collects these into an `untaintedCalls` list passed to the analysis.
+
 **Mutable binding over-approximation.** If a `letMut` variable is assigned the tainted source on _any_ code path, the analysis marks it tainted everywhere — even on branches where the assignment doesn't execute. This means a pattern like `let x = safe; if (rare) { x = secret; } logger.log(x)` marks `x` as tainted in the `logger.log` call, even though most paths are clean. This is sound (no false negatives) but may produce false positives, causing proof failures for code that is actually safe. The fix is always local: refactor the mutable variable into separate `const` bindings per branch, which the agent can do automatically when the taint proof fails.
 
-**Control-flow independence (current implementation).** Today, `notTaintedIn` also requires a coarse global check: the taint source must not appear in `freeVars prog`. This treats any syntactic dependence on the source (including branch conditions) as potentially influencing calls. As a result, the analysis is conservative: it can reject programs that are path-safe in practice (false positives), but it does not miss real leaks. Example: if `if (secret) { ... } else { ... }` appears anywhere in the function, the proof precondition fails even when a specific matched call argument is source-independent on each branch. A future refinement is path-sensitive control-dependence tracking per call site, so we only reject calls actually control-dependent on source-tainted conditions.
+**Scoped control-flow check.** `controlFlowSafe` checks that no conditional (if/while) whose body contains a matching call has its condition depend on the taint source. This is more precise than the previous global check (`source ∉ freeVars prog`): the source can appear in the program (e.g. as a function parameter passed to other calls) as long as it doesn't appear in conditions that guard matched calls.
 
-**Taint precision examples (current behavior).**
+**Taint precision examples.**
 
-- `taintSafeLiteral` (`examples/taintSafeLiteral.ts`) → `notTaintedIn ... "secret" "logger.*" = true` (source absent from program)
-- `taintDirectLeak` (`examples/taintDirectLeak.ts`) → `notTaintedIn ... "secret" "logger.*" = false` (direct data flow)
-- `taintControlFlowConservative` (`examples/taintControlFlowConservative.ts`) → `notTaintedIn ... "secret" "logger.*" = false` (control-flow conservative rejection)
-- `taintLetMutOverapprox` (`examples/taintLetMutOverapprox.ts`) → `notTaintedIn ... "secret" "logger.public" = false` (mutable + control-flow over-approximation)
+- `taintSafeLiteral` (`examples/taintSafeLiteral.ts`) → `notTaintedIn ... "secret" "logger.*" = true` (source absent from call args)
+- `signAndLog` (`examples/signAndLog.ts`) → `notTaintedIn ... "secret" "logger.*" ["crypto.hmac"] = true` (secret flows to `crypto.hmac` but its result is whitelisted, so `signature` is untainted and can reach `logger.info`)
+- `leakyLog` (`examples/signAndLog.ts`) → `notTaintedIn ... "secret" "logger.*" = false` (secret flows through `unsafeHash.digest` whose result is tainted by default, tainting `tag` and then `logLine`)
 
 The key taint soundness theorem:
 
 ```lean
-theorem taint_soundness (prog : Expr) (source pattern : String)
-    (h : notTaintedIn prog source pattern = true) :
-    ∀ fuel env env' store,
-      (∀ x ≠ source, env x = env' x) →   -- env and env' differ only on source
+theorem taint_soundness (fuel : Nat) (prog : Expr) (source pattern : String)
+    (untaintedCalls : List String)
+    (h : notTaintedIn prog source pattern untaintedCalls = true) :
+    ∀ env env' store,
+      (∀ x, x ≠ source → env x = env' x) →   -- env and env' differ only on source
       callsTo (eval fuel env store prog).trace pattern =
       callsTo (eval fuel env' store prog).trace pattern
 -- Changing source's value doesn't change any matching call's arguments
@@ -672,7 +693,7 @@ jscore/
 │   │   ├── LoopInvariant.lean                                 (~60 LOC)
 │   │   ├── ConditionalCoverage.lean                           (~30 LOC)
 │   │   ├── Composition.lean                                   (~40 LOC)
-│   │   └── TaintSoundness.lean                                (~680 LOC)
+│   │   └── TaintSoundness.lean                                (~20 LOC, sorry)
 │   └── Tactics.lean                                           (~400 LOC)
 ├── JSCore.lean
 └── lakefile.lean

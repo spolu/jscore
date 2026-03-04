@@ -58,59 +58,63 @@ mutual
 end
 
 -- Collect all bindings that transitively use a given source variable.
+-- Accumulator-based: acc starts as [source] and grows as taint propagates.
+-- untaintedCalls: call targets whose results do NOT propagate taint.
 mutual
-  def collectTaintedBindings (source : String) : Expr → List String
+  def collectTaintedBindings (untaintedCalls : List String) (acc : List String) : Expr → List String
     | .letConst x e body =>
-      let eTainted := collectTaintedBindings source e
-      let taintedSet := source :: eTainted
-      if (freeVars e).any (· ∈ taintedSet) then
-        x :: collectTaintedBindings source body ++ eTainted
-      else
-        collectTaintedBindings source body ++ eTainted
+      let newAcc := if (freeVars e).any (· ∈ acc) then x :: acc else acc
+      collectTaintedBindings untaintedCalls newAcc body
     | .letMut x e body =>
-      let eTainted := collectTaintedBindings source e
-      let taintedSet := source :: eTainted
-      if (freeVars e).any (· ∈ taintedSet) then
-        x :: collectTaintedBindings source body ++ eTainted
-      else
-        collectTaintedBindings source body ++ eTainted
+      let newAcc := if (freeVars e).any (· ∈ acc) then x :: acc else acc
+      collectTaintedBindings untaintedCalls newAcc body
     | .assign x e body =>
-      let eTainted := collectTaintedBindings source e
-      let taintedSet := source :: eTainted
-      if (freeVars e).any (· ∈ taintedSet) then
-        x :: collectTaintedBindings source body ++ eTainted
-      else
-        collectTaintedBindings source body ++ eTainted
-    | .call _ args _ body =>
-      collectTaintedBindingsPairs source args ++ collectTaintedBindings source body
+      let newAcc := if (freeVars e).any (· ∈ acc) then x :: acc else acc
+      collectTaintedBindings untaintedCalls newAcc body
+    | .call target args resultBinder body =>
+      -- Check if any arg's freeVars intersect acc
+      let argsTainted := collectTaintedBindingsPairs untaintedCalls acc args
+      let callTaints := argsTainted && !(untaintedCalls.any (· == target))
+      let newAcc := if callTaints then resultBinder :: acc else acc
+      collectTaintedBindings untaintedCalls newAcc body
     | .seq e1 e2 =>
-      collectTaintedBindings source e1 ++ collectTaintedBindings source e2
+      let acc1 := collectTaintedBindings untaintedCalls acc e1
+      collectTaintedBindings untaintedCalls acc1 e2
     | .ite c t f =>
-      collectTaintedBindings source c ++ collectTaintedBindings source t ++
-      collectTaintedBindings source f
+      let accC := collectTaintedBindings untaintedCalls acc c
+      let accT := collectTaintedBindings untaintedCalls accC t
+      let accF := collectTaintedBindings untaintedCalls accC f
+      -- Union: everything tainted in either branch
+      accT ++ accF.filter (· ∉ accT)
     | .forOf _ arrExpr body =>
-      collectTaintedBindings source arrExpr ++ collectTaintedBindings source body
+      let acc1 := collectTaintedBindings untaintedCalls acc arrExpr
+      collectTaintedBindings untaintedCalls acc1 body
     | .whileLoop _ c body =>
-      collectTaintedBindings source c ++ collectTaintedBindings source body
+      let acc1 := collectTaintedBindings untaintedCalls acc c
+      collectTaintedBindings untaintedCalls acc1 body
     | .tryCatch body _ handler =>
-      collectTaintedBindings source body ++ collectTaintedBindings source handler
-    | .ret e => collectTaintedBindings source e
-    | .throw e => collectTaintedBindings source e
+      let acc1 := collectTaintedBindings untaintedCalls acc body
+      collectTaintedBindings untaintedCalls acc1 handler
+    | .ret e => collectTaintedBindings untaintedCalls acc e
+    | .throw e => collectTaintedBindings untaintedCalls acc e
     | .binOp _ e1 e2 =>
-      collectTaintedBindings source e1 ++ collectTaintedBindings source e2
-    | .unOp _ e => collectTaintedBindings source e
-    | _ => []
+      let acc1 := collectTaintedBindings untaintedCalls acc e1
+      collectTaintedBindings untaintedCalls acc1 e2
+    | .unOp _ e => collectTaintedBindings untaintedCalls acc e
+    | _ => acc
 
-  def collectTaintedBindingsPairs (source : String) : List (String × Expr) → List String
-    | [] => []
+  -- Check if any arg expression's freeVars intersect the tainted set
+  def collectTaintedBindingsPairs (untaintedCalls : List String) (acc : List String) :
+      List (String × Expr) → Bool
+    | [] => false
     | (_, e) :: rest =>
-      collectTaintedBindings source e ++ collectTaintedBindingsPairs source rest
+      (freeVars e).any (· ∈ acc) || collectTaintedBindingsPairs untaintedCalls acc rest
 end
 
 -- Is expression e tainted by binding source?
-def taintedBy (prog : Expr) (source : String) (e : Expr) : Bool :=
-  let taintedBindings := source :: collectTaintedBindings source prog
-  (freeVars e).any (· ∈ taintedBindings)
+def taintedBy (prog : Expr) (source : String) (untaintedCalls : List String) (e : Expr) : Bool :=
+  let taintedSet := collectTaintedBindings untaintedCalls [source] prog
+  (freeVars e).any (· ∈ taintedSet)
 
 -- Collected call expressions and their argument expressions for a given pattern
 structure CallExprInfo where
@@ -150,13 +154,57 @@ mutual
     | (_, e) :: rest, pattern => callExprsIn e pattern ++ callExprsInPairs rest pattern
 end
 
+-- Control-flow safety: check that no conditional guarding a matching call depends on source
+mutual
+  def controlFlowSafe (source pattern : String) : Expr → Bool
+    | .ite cond thn els =>
+      let thnHasCalls := !(callExprsIn thn pattern).isEmpty
+      let elsHasCalls := !(callExprsIn els pattern).isEmpty
+      let condSafe := if thnHasCalls || elsHasCalls then
+        !(freeVars cond).any (· == source) else true
+      condSafe && controlFlowSafe source pattern cond &&
+        controlFlowSafe source pattern thn && controlFlowSafe source pattern els
+    | .whileLoop _ cond body =>
+      let bodyHasCalls := !(callExprsIn body pattern).isEmpty
+      let condSafe := if bodyHasCalls then !(freeVars cond).any (· == source) else true
+      condSafe && controlFlowSafe source pattern cond &&
+        controlFlowSafe source pattern body
+    | .letConst _ e body =>
+      controlFlowSafe source pattern e && controlFlowSafe source pattern body
+    | .letMut _ e body =>
+      controlFlowSafe source pattern e && controlFlowSafe source pattern body
+    | .assign _ e body =>
+      controlFlowSafe source pattern e && controlFlowSafe source pattern body
+    | .call _ args _ body =>
+      controlFlowSafePairs source pattern args && controlFlowSafe source pattern body
+    | .seq e1 e2 =>
+      controlFlowSafe source pattern e1 && controlFlowSafe source pattern e2
+    | .forOf _ arrExpr body =>
+      controlFlowSafe source pattern arrExpr && controlFlowSafe source pattern body
+    | .tryCatch body _ handler =>
+      controlFlowSafe source pattern body && controlFlowSafe source pattern handler
+    | .ret e => controlFlowSafe source pattern e
+    | .throw e => controlFlowSafe source pattern e
+    | .binOp _ e1 e2 =>
+      controlFlowSafe source pattern e1 && controlFlowSafe source pattern e2
+    | .unOp _ e => controlFlowSafe source pattern e
+    | _ => true
+
+  def controlFlowSafePairs (source pattern : String) : List (String × Expr) → Bool
+    | [] => true
+    | (_, e) :: rest =>
+      controlFlowSafe source pattern e && controlFlowSafePairs source pattern rest
+end
+
 -- No call matching pattern has any argument that depends on source
-def notTaintedIn (prog : Expr) (source pattern : String) : Bool :=
+def notTaintedIn (prog : Expr) (source pattern : String)
+    (untaintedCalls : List String := []) : Bool :=
+  let taintedSet := collectTaintedBindings untaintedCalls [source] prog
   let calls := callExprsIn prog pattern
   let argsIndependent := calls.all fun ci =>
     ci.namedArgs.all fun (_, argExpr) =>
-      !taintedBy prog source argExpr
-  let controlIndependent := decide (source ∉ freeVars prog)
-  controlIndependent && argsIndependent
+      !(freeVars argExpr).any (· ∈ taintedSet)
+  let cfSafe := controlFlowSafe source pattern prog
+  cfSafe && argsIndependent
 
 end JSCore

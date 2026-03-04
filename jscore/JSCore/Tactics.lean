@@ -43,12 +43,15 @@ macro "by_taint" : tactic =>
     simp only [notTaintedIn, callExprsIn, callExprsInPairs, taintedBy, freeVars,
                freeVarsPairs, freeVarsList,
                collectTaintedBindings, collectTaintedBindingsPairs,
+               controlFlowSafe, controlFlowSafePairs,
                matchesPat, matchesPat.go,
                List.all, List.any, List.flatMap, List.filter, List.map,
-               List.elem, List.append,
+               List.elem, List.append, List.isEmpty,
                String.startsWith, String.isPrefixOf,
                BEq.beq, String.decEq,
                Bool.not_true, Bool.not_false,
+               Bool.true_and, Bool.false_and, Bool.and_true, Bool.and_false,
+               Bool.true_or, Bool.false_or, Bool.or_true, Bool.or_false,
                decide_true, decide_false]
     <;> (try rfl)
     <;> (try decide)))

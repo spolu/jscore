@@ -1,13 +1,5 @@
-interface Auth {
-  workspaceId: string;
-  userId: string;
-}
-
 declare const db: {
   apiKey: {
-    findUnique(query: {
-      where: { id: string; workspaceId: string };
-    }): Promise<{ id: string; key: string }>;
     update(query: {
       where: { id: string };
       data: { key: string };
@@ -21,20 +13,14 @@ declare const logger: {
   info(msg: string): Promise<void>;
 };
 
-// @requires auth.workspaceId > 0
 // @invariant no-secret-leak: ¬ tainted apiKey in call logger.*
-async function rotateApiKey(auth: Auth, keyId: string) {
-  const existing = await db.apiKey.findUnique({
-    where: { id: keyId, workspaceId: auth.workspaceId },
-  });
-
-  const apiKey = existing.key;
+async function rotateApiKey(apiKey: string, keyId: string) {
   const newKey = await generateKey();
 
   await db.apiKey.update({
     where: { id: keyId },
-    data: { key: newKey },
+    data: { key: apiKey },
   });
 
-  await logger.info("API key rotated successfully");
+  await logger.info("rotated:" + keyId);
 }
