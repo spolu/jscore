@@ -39,6 +39,7 @@ theorem exportWorkspaceData_ws_isolation
     (h_env_format : env "format" = some format)
     : ∀ c ∈ callsTo (eval fuel env store exportWorkspaceData_body).trace "db.*",
       argAtPath c "where.workspaceId" = Val.field' auth "workspaceId" := by
+  intro c hc
   sorry
 
 theorem exportWorkspaceData_read_only

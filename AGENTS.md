@@ -20,9 +20,9 @@ Toolchain: `leanprover/lean4:v4.16.0`. No external Lake dependencies. `autoImpli
 ### Extractor (`extractor/`)
 ```bash
 cd extractor && npx tsc                          # compile TS → dist/
-node dist/index.js extract --out-dir ../generated <files...>
-node dist/index.js verify  --out-dir ../generated --lean-dir ../jscore <files...>
-node dist/index.js coverage --out-dir ../generated <files...>
+node dist/index.js extract --out-dir ../examples <files...>
+node dist/index.js verify  --out-dir ../examples --lean-dir ../jscore <files...>
+node dist/index.js coverage --out-dir ../examples <files...>
 ```
 
 ### Examples (`examples/`)
@@ -56,9 +56,10 @@ Modules imported in dependency order by `jscore/JSCore.lean`:
 - **reassignment.ts** — Determines letConst vs letMut based on reassignment analysis.
 - **type-translator.ts** — TS types → Lean Val predicates.
 
-### Generated Lean file structure
+### Extracted Lean file structure
 
 Each extracted function produces: a `def <name>_body : Expr` with the expression tree, then theorems. Syntactic theorems (taint, nonexistence) close with `native_decide`. Runtime theorems have `sorry` for agents to fill using metatheory lemmas.
+Lean outputs should be generated under `examples/`, collocated with their `.ts` source files (not under a separate `generated/` directory).
 
 ## Lean 4 v4.16.0 Gotchas
 
@@ -76,11 +77,11 @@ Each extracted function produces: a `def <name>_body : Expr` with the expression
 ## Known Sorrys
 
 - `JSCore/Metatheory/TaintSoundness.lean` sorrys are resolved (`eval_independent_of_source` and `taint_soundness` are proved).
-- All generated runtime theorem proofs (intentional — agents fill these in)
+- All extracted runtime theorem proofs in `examples/` (intentional — agents fill these in)
 
 ## Proof Strategy for Runtime Theorems
 
-Key tactics and lemmas for closing `sorry` in generated files:
+Key tactics and lemmas for closing `sorry` in extracted files:
 - `trace_simp` — fully concrete cases
 - `forOf_invariant` / `forOf_invariant'` — loop invariants
 - `ite_covers` — if/then/else coverage
