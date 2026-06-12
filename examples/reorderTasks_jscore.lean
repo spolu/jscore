@@ -7,6 +7,7 @@ import JSCore.Taint
 import JSCore.Tactics
 import JSCore.Metatheory.EvalEq
 import JSCore.Metatheory.FuelMono
+import JSCore.Metatheory.ArgAt
 
 import JSCore.Metatheory.TraceComposition
 import JSCore.Metatheory.LoopInvariant
@@ -35,20 +36,6 @@ abbrev loop_body : Expr :=
      ("data", (.obj [("position", (.numLit 0))]))]
     "__void_0"
     Expr.none
-
--- argAtPath computation helper: string ops via native_decide, structure via simp
-
-private theorem argAtPath_where_pid (id_val pid_val : Val) :
-    argAtPath { target := "db.task.update",
-                args := [("where", Val.obj [("id", id_val), ("projectId", pid_val)]),
-                         ("data", Val.obj [("position", Val.num 0)])],
-                resultId := "__void_0" } "where.projectId" = some pid_val := by
-  have h1 : ("where.projectId" : String).splitOn "." = ["where", "projectId"] := by native_decide
-  have h2 : (BEq.beq "where" "where" : Bool) = true := by native_decide
-  have h3 : (BEq.beq "id" "projectId" : Bool) = false := by native_decide
-  have h4 : (BEq.beq "projectId" "projectId" : Bool) = true := by native_decide
-  simp only [argAtPath, h1, argLookup, fieldLookup, List.find?, List.foldl,
-             h2, h3, h4, ite_true, ite_false]
 
 -- Helpers: evaluate the two argument objects of the update call
 
@@ -83,14 +70,14 @@ private theorem loop_body_props (env : Env) (store : Store) (elem projectId : Va
     (h_store : store "projectId" = none) :
     (eval 4 (Env.set env "taskId" elem) store loop_body).store = store ∧
     (∀ c ∈ callsTo (eval 4 (Env.set env "taskId" elem) store loop_body).trace "db.*",
-      argAtPath c "where.projectId" = some projectId) := by
+      argAt c ["where", "projectId"] = some projectId) := by
   have h_l_pid : lookup (Env.set env "taskId" elem) store "projectId" = some projectId := by
     rw [lookup_none h_store]
     simp [Env.set, show ("projectId" : String) ≠ "taskId" from by decide, h_env]
   have main : ∀ tidVal, lookup (Env.set env "taskId" elem) store "taskId" = some tidVal →
       (eval 4 (Env.set env "taskId" elem) store loop_body).store = store ∧
       (∀ c ∈ callsTo (eval 4 (Env.set env "taskId" elem) store loop_body).trace "db.*",
-        argAtPath c "where.projectId" = some projectId) := by
+        argAt c ["where", "projectId"] = some projectId) := by
     intro tidVal h_l_tid
     have h_eval : eval 4 (Env.set env "taskId" elem) store loop_body =
         mkResult (.ok Val.none) store
@@ -114,7 +101,7 @@ private theorem loop_body_props (env : Env) (store : Store) (elem projectId : Va
     intro c hc
     have h_pat : matchesPattern "db.task.update" "db.*" = true := by native_decide
     have := mem_callsTo_singleton h_pat hc; subst this
-    exact argAtPath_where_pid tidVal projectId
+    simp
   cases h_tid : store "taskId" with
   | none =>
     exact main elem (by rw [lookup_none h_tid]; simp [Env.set])
@@ -171,7 +158,7 @@ theorem reorderTasks_scope_limited
     (h_store_tasks : store "tasks" = none)
     (h_fuel : fuel ≥ 6)
     : ∀ c ∈ callsTo (eval fuel env store reorderTasks_body).trace "db.*",
-      argAtPath c "where.projectId" = some projectId := by
+      argAt c ["where", "projectId"] = some projectId := by
   rw [eval_fuel_mono 6 reorderTasks_body (by decide) fuel h_fuel]
   intro c hc
   cases h_tasks : tasks with
@@ -179,7 +166,7 @@ theorem reorderTasks_scope_limited
     rw [h_tasks] at h_env_tasks
     rw [eval_outer_trace env store elems h_store_tasks h_env_tasks] at hc
     have h_inv := forOf_callsTo 4 env "taskId" elems loop_body "db.*"
-      (fun c => argAtPath c "where.projectId" = some projectId)
+      (fun c => argAt c ["where", "projectId"] = some projectId)
       (fun s => s = store)
       store []
       rfl

@@ -384,7 +384,12 @@ Exit criterion: every theorem that CI reports "proved" means what the annotation
 for all sufficient fuels, with no vacuous hypotheses.
 
 ### Phase 1 — Proof-size reduction (library work)
-1. Paths/patterns as `List String` through extractor + Trace API (§5.2).
+1. ◐ **Paths done 2026-06** — `argAt`/`valAt` take `List String`; the extractor
+   emits segments (`argAt c ["where", "projectId"]`); `Metatheory/ArgAt.lean`
+   @[simp] lemmas (fieldLookup hit/miss with `by decide` autoParams) close
+   argAt goals by plain `simp`. All per-example argAtPath/String.splitOn
+   helper lemmas deleted. Remaining: patterns/`matchesPattern` as segments
+   (would kill the remaining example native_decides).
 2. Generic argAtPath/matchesPattern simp lemmas; simp sets; `eval_step` tactic (§6).
 3. SSA experiment: extractor pass eliminating `letMut` for non-loop-carried
    reassignment; measure hypothesis/statement shrinkage (§5.4).

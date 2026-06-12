@@ -55,19 +55,28 @@ def callsTo (trace : List TraceEntry) (pattern : String) : List CallRecord :=
 def argLookup (args : List (String × Val)) (name : String) : Option Val :=
   fieldLookup args name
 
--- Value at a dotted path like "where.workspaceId"
-def argAtPath (c : CallRecord) (path : String) : Option Val :=
-  let parts := path.splitOn "."
-  match parts with
+-- Value at a pre-split path inside a Val. Paths are List String so proofs
+-- never reason about String.splitOn (the extractor splits at emission time).
+def valAt : Val → List String → Option Val
+  | v, [] => some v
+  | .obj fields, seg :: rest =>
+    (match fieldLookup fields seg with
+     | some v => valAt v rest
+     | Option.none => Option.none)
+  | _, _ :: _ => Option.none
+
+-- Value of a named argument at a pre-split path.
+def argAt (c : CallRecord) : List String → Option Val
   | [] => Option.none
-  | [name] => argLookup c.args name
   | name :: rest =>
     match argLookup c.args name with
-    | some v => rest.foldl (fun acc part =>
-        match acc with
-        | some (.obj fields) => fieldLookup fields part
-        | _ => Option.none) (some v)
+    | some v => valAt v rest
     | Option.none => Option.none
+
+-- Dotted-path convenience wrapper (kept for backwards compatibility; prefer
+-- `argAt` with explicit segments in generated statements and proofs).
+def argAtPath (c : CallRecord) (path : String) : Option Val :=
+  argAt c (path.splitOn ".")
 
 -- Ordering: c1 appears before c2 in the trace
 def before (trace : List TraceEntry) (c1 c2 : CallRecord) : Prop :=

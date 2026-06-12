@@ -7,6 +7,7 @@ import JSCore.Taint
 import JSCore.Tactics
 import JSCore.Metatheory.EvalEq
 import JSCore.Metatheory.FuelMono
+import JSCore.Metatheory.ArgAt
 
 import JSCore.Metatheory.TraceComposition
 
@@ -23,20 +24,6 @@ def lookupProject_body : Expr :=
     "project"
     (.ret
       (.var "project")))
-
-private theorem argAtPath_where_wsId_2 (target resultId : String) (idVal wsVal : Val) :
-    argAtPath { target := target,
-                args := [("where", Val.obj [("id", idVal), ("workspaceId", wsVal)])],
-                resultId := resultId } "where.workspaceId" = some wsVal := by
-  have h1 : ("where.workspaceId" : String).splitOn "." = ["where", "workspaceId"] := by native_decide
-  have h2 : (BEq.beq "where" "where" : Bool) = true := by native_decide
-  have h3 : (BEq.beq "id" "workspaceId" : Bool) = false := by native_decide
-  have h4 : (BEq.beq "workspaceId" "workspaceId" : Bool) = true := by native_decide
-  simp only [argAtPath, h1, argLookup, fieldLookup, List.find?, List.foldl,
-             h2, h3, h4, ite_true, ite_false]
-
--- Helper: @requires auth.workspaceId starts_with "ws_" forces auth to be an
--- object with a string workspaceId field.
 
 private theorem auth_ws_string (auth : Val)
     (h : match Option.bind (some auth) (fun __v => Val.field' __v "workspaceId"),
@@ -83,18 +70,6 @@ private theorem eval_findUnique_arg (n : Nat) (env : Env) (store : Store)
   rw [evalPairsAux_pure_cons (eval_field_var h_env_auth h_store_auth h_fl (by omega))]
   rw [evalPairsAux_nil]
   rfl
-
-private theorem argAtPath_update_wsId (target resultId : String) (idVal wsVal : Val) :
-    argAtPath { target := target,
-                args := [("where", Val.obj [("id", idVal), ("workspaceId", wsVal)]),
-                         ("data", Val.obj [("updatedAt", Val.str "now")])],
-                resultId := resultId } "where.workspaceId" = some wsVal := by
-  have h1 : ("where.workspaceId" : String).splitOn "." = ["where", "workspaceId"] := by native_decide
-  have h2 : (BEq.beq "where" "where" : Bool) = true := by native_decide
-  have h3 : (BEq.beq "id" "workspaceId" : Bool) = false := by native_decide
-  have h4 : (BEq.beq "workspaceId" "workspaceId" : Bool) = true := by native_decide
-  simp only [argAtPath, h1, argLookup, fieldLookup, List.find?, List.foldl,
-             h2, h3, h4, ite_true, ite_false]
 
 -- Helper: evaluate obj [("id", var "itemId")]
 
@@ -174,7 +149,7 @@ theorem lookupProject_ws_isolation
     (h_req_0 : match Option.bind (some auth) (fun __v => Val.field' __v "workspaceId"), some (Val.str "ws_") with | some __lhs, some __rhs => Val.startsWith' __lhs __rhs = true | _, _ => False)
     (h_fuel : fuel ≥ 5)
     : ∀ c ∈ callsTo (eval fuel env store lookupProject_body).trace "db.*",
-      argAtPath c "where.workspaceId" = Option.bind (some auth) (fun __v => Val.field' __v "workspaceId") := by
+      argAt c ["where", "workspaceId"] = Option.bind (some auth) (fun __v => Val.field' __v "workspaceId") := by
   rw [eval_fuel_mono 5 lookupProject_body (by decide) fuel h_fuel]
   -- Extract auth structure from @requires
   obtain ⟨fields, s, h_auth_eq, h_fl⟩ := auth_ws_string auth h_req_0
@@ -199,7 +174,7 @@ theorem lookupProject_ws_isolation
   | inl h1 =>
     have hp : matchesPattern "db.project.findUnique" "db.*" = true := by native_decide
     have := mem_callsTo_singleton hp h1; subst this
-    exact argAtPath_where_wsId_2 "db.project.findUnique" "project" projectId (Val.str s)
+    simp
   | inr h2 =>
     -- ret (var "project") produces no calls
     exfalso
@@ -215,7 +190,7 @@ theorem lookupProject_ws_isolation_canonical
     (h_req_0 : match Option.bind (some auth) (fun __v => Val.field' __v "workspaceId"), some (Val.str "ws_") with | some __lhs, some __rhs => Val.startsWith' __lhs __rhs = true | _, _ => False)
     (h_fuel : fuel ≥ 5)
     : ∀ c ∈ callsTo (eval fuel ((emptyEnv.set "auth" auth).set "projectId" projectId) emptyStore lookupProject_body).trace "db.*",
-      argAtPath c "where.workspaceId" = Option.bind (some auth) (fun __v => Val.field' __v "workspaceId") := by
+      argAt c ["where", "workspaceId"] = Option.bind (some auth) (fun __v => Val.field' __v "workspaceId") := by
   intro c hc
   exact lookupProject_ws_isolation
     fuel auth projectId
@@ -287,7 +262,7 @@ theorem scopedUpdate_scoped_update
     (h_store_item : store "item" = none)
     (h_fuel : fuel ≥ 9)
     : ∀ c ∈ callsTo (eval fuel env store scopedUpdate_body).trace "db.item.update",
-      argAtPath c "where.workspaceId" =
+      argAt c ["where", "workspaceId"] =
         Option.bind (some auth) (fun __v => Val.field' __v "workspaceId") := by
   rw [eval_fuel_mono 9 scopedUpdate_body (by decide) fuel h_fuel]
   -- Phase 1: Extract structure from hypotheses
@@ -380,9 +355,7 @@ theorem scopedUpdate_scoped_update
   | inl h_call =>
     have hp : matchesPattern "db.item.update" "db.item.update" = true := by native_decide
     have := mem_callsTo_singleton hp h_call; subst this
-    exact argAtPath_update_wsId "db.item.update" "__void_0"
-      (match fieldLookup item_fields "id" with | some v => v | none => Val.none)
-      (Val.str s)
+    simp
   | inr h_rest =>
     exfalso
     rw [eval_none_trace, callsTo_nil] at h_rest

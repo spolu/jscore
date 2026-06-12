@@ -277,11 +277,15 @@ function translateCallPred(
   if (eqMatch) {
     const [, left, op, right] = eqMatch;
     const leanOp = op === "=" ? "=" : "≠";
+    // Paths are emitted pre-split (List String) so Lean proofs never reason
+    // about String.splitOn — `argAt c ["where", "projectId"]`.
+    const segList = (path: string): string =>
+      `[${path.split(".").map((s) => `"${escapeLeanString(s)}"`).join(", ")}]`;
     const leanLeft = left.startsWith(callVar + ".")
-      ? `argAtPath ${callVar} "${left.slice(callVar.length + 1)}"`
+      ? `argAt ${callVar} ${segList(left.slice(callVar.length + 1))}`
       : translateAccessAsOption(left, params);
     const leanRight = right.startsWith(callVar + ".")
-      ? `argAtPath ${callVar} "${right.slice(callVar.length + 1)}"`
+      ? `argAt ${callVar} ${segList(right.slice(callVar.length + 1))}`
       : translateAccessAsOption(right, params);
     return `${leanLeft} ${leanOp} ${leanRight}`;
   }

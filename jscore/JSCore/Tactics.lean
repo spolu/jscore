@@ -22,7 +22,7 @@ macro "trace_simp" : tactic =>
                mkResult, lookup, Env.set, Store.set, fieldLookup, fieldSet,
                emptyEnv, emptyStore, matchesPattern, matchesPattern.go,
                callsTo, extractCalls,
-               argLookup, argAtPath,
+               argLookup, argAtPath, argAt, valAt,
                Val.startsWith', Val.mem', Val.contains',
                List.foldl, List.filter, List.filterMap, List.map, List.append,
                List.find?, List.any, List.all,

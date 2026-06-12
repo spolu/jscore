@@ -7,6 +7,7 @@ import JSCore.Taint
 import JSCore.Tactics
 import JSCore.Metatheory.EvalEq
 import JSCore.Metatheory.FuelMono
+import JSCore.Metatheory.ArgAt
 
 open JSCore
 

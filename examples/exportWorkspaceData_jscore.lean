@@ -7,6 +7,7 @@ import JSCore.Taint
 import JSCore.Tactics
 import JSCore.Metatheory.EvalEq
 import JSCore.Metatheory.FuelMono
+import JSCore.Metatheory.ArgAt
 
 import JSCore.Metatheory.TraceComposition
 
@@ -32,19 +33,6 @@ def exportWorkspaceData_body : Expr :=
           ("projects", (.var "projects")),
           ("tasks", (.var "tasks"))
         ]))))
-
-private theorem argAtPath_where_wsId (target : String) (resultId : String) (wsId : Val) :
-    argAtPath { target := target,
-                args := [("where", Val.obj [("workspaceId", wsId)])],
-                resultId := resultId } "where.workspaceId" = some wsId := by
-  have h1 : ("where.workspaceId" : String).splitOn "." = ["where", "workspaceId"] := by native_decide
-  have h2 : (BEq.beq "where" "where" : Bool) = true := by native_decide
-  have h3 : (BEq.beq "workspaceId" "workspaceId" : Bool) = true := by native_decide
-  simp only [argAtPath, h1, argLookup, fieldLookup, List.find?, List.foldl,
-             h2, h3, ite_true, ite_false]
-
--- Helper: @requires auth.workspaceId starts_with "ws_" forces auth to be an
--- object with a string workspaceId field.
 
 private theorem auth_ws_string (auth : Val)
     (h : match Option.bind (some auth) (fun __v => Val.field' __v "workspaceId"),
@@ -131,7 +119,7 @@ theorem exportWorkspaceData_ws_isolation
     (h_req_0 : match Option.bind (some auth) (fun __v => Val.field' __v "workspaceId"), some (Val.str "ws_") with | some __lhs, some __rhs => Val.startsWith' __lhs __rhs = true | _, _ => False)
     (h_fuel : fuel ≥ 6)
     : ∀ c ∈ callsTo (eval fuel env store exportWorkspaceData_body).trace "db.*",
-      argAtPath c "where.workspaceId" = Option.bind (some auth) (fun __v => Val.field' __v "workspaceId") := by
+      argAt c ["where", "workspaceId"] = Option.bind (some auth) (fun __v => Val.field' __v "workspaceId") := by
   rw [eval_fuel_mono 6 exportWorkspaceData_body (by decide) fuel h_fuel]
   obtain ⟨fields, s, h_auth_eq, h_fl⟩ := auth_ws_string auth h_req_0
   subst h_auth_eq
@@ -152,7 +140,7 @@ theorem exportWorkspaceData_ws_isolation
   | inl h1 =>
     have hp : matchesPattern "db.projects.findMany" "db.*" = true := by native_decide
     have := mem_callsTo_singleton hp h1; subst this
-    exact argAtPath_where_wsId "db.projects.findMany" "projects" (Val.str s)
+    simp
   | inr h2 =>
     have h_env_auth2 : (env.set "projects" Val.none) "auth" = some (Val.obj fields) := by
       simp [Env.set, show ("auth" : String) ≠ "projects" from by decide, h_env_auth]
@@ -170,7 +158,7 @@ theorem exportWorkspaceData_ws_isolation
     | inl h2a =>
       have hp : matchesPattern "db.tasks.findMany" "db.*" = true := by native_decide
       have := mem_callsTo_singleton hp h2a; subst this
-      exact argAtPath_where_wsId "db.tasks.findMany" "tasks" (Val.str s)
+      simp
     | inr h2b =>
       exfalso
       have h_no_calls := ret_obj_vars_no_calls
@@ -185,7 +173,7 @@ theorem exportWorkspaceData_ws_isolation_canonical
     (h_req_0 : match Option.bind (some auth) (fun __v => Val.field' __v "workspaceId"), some (Val.str "ws_") with | some __lhs, some __rhs => Val.startsWith' __lhs __rhs = true | _, _ => False)
     (h_fuel : fuel ≥ 6)
     : ∀ c ∈ callsTo (eval fuel ((emptyEnv.set "auth" auth).set "format" format) emptyStore exportWorkspaceData_body).trace "db.*",
-      argAtPath c "where.workspaceId" = Option.bind (some auth) (fun __v => Val.field' __v "workspaceId") := by
+      argAt c ["where", "workspaceId"] = Option.bind (some auth) (fun __v => Val.field' __v "workspaceId") := by
   intro c hc
   exact exportWorkspaceData_ws_isolation
     fuel auth format

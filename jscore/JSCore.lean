@@ -10,6 +10,7 @@ import JSCore.Metatheory.EnvStability
 import JSCore.Metatheory.LoopInvariant
 import JSCore.Metatheory.EvalEq
 import JSCore.Metatheory.FuelMono
+import JSCore.Metatheory.ArgAt
 import JSCore.Metatheory.ForOfCallsTo
 import JSCore.Metatheory.ConditionalCoverage
 import JSCore.Metatheory.Composition

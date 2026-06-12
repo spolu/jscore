@@ -223,6 +223,7 @@ export function emitLeanFileMulti(functions: FunctionEntry[]): string {
   lines.push("import JSCore.Tactics");
   lines.push("import JSCore.Metatheory.EvalEq");
   lines.push("import JSCore.Metatheory.FuelMono");
+  lines.push("import JSCore.Metatheory.ArgAt");
   lines.push("");
   lines.push("open JSCore");
   lines.push("");
