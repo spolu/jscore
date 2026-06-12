@@ -14,7 +14,7 @@ declare const db: {
   };
 };
 
-// @requires auth.workspaceId > 0
+// @requires auth.workspaceId starts_with "ws_"
 // @invariant ws-isolation: ∀ call db.* (c) => c.where.workspaceId = auth.workspaceId
 async function lookupProject(auth: Auth, projectId: string) {
   const project = await db.project.findUnique({
@@ -24,7 +24,7 @@ async function lookupProject(auth: Auth, projectId: string) {
   return project;
 }
 
-// @requires auth.workspaceId > 0
+// @requires auth.workspaceId starts_with "ws_"
 // @requires kind = "workspace"
 // @invariant scoped-update: ∀ call db.item.update (c) => c.where.workspaceId = auth.workspaceId
 async function scopedUpdate(auth: Auth, kind: string, itemId: string) {

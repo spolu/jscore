@@ -88,4 +88,20 @@ open JSCore
       (.seq (.push "acc" (.numLit 1)) (.var "acc")))
    r.outcome == .error (.str "push on non-array: acc"))
 
+-- Negative array index yields .none (JS `undefined`), not element 0.
+#guard
+  (let r := eval 10 emptyEnv emptyStore
+    (.index (.arr [.numLit 7, .numLit 8]) (.numLit (-1)))
+   r.outcome == .ok .none)
+
+-- Out-of-bounds index yields .none; in-bounds yields the element.
+#guard
+  (let r := eval 10 emptyEnv emptyStore
+    (.index (.arr [.numLit 7, .numLit 8]) (.numLit 5))
+   r.outcome == .ok .none)
+#guard
+  (let r := eval 10 emptyEnv emptyStore
+    (.index (.arr [.numLit 7, .numLit 8]) (.numLit 1))
+   r.outcome == .ok (.num 8))
+
 end JSCore.Tests

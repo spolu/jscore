@@ -43,6 +43,36 @@ private theorem argAtPath_where_wsId (target : String) (resultId : String) (wsId
   simp only [argAtPath, h1, argLookup, fieldLookup, List.find?, List.foldl,
              h2, h3, ite_true, ite_false]
 
+-- Helper: @requires auth.workspaceId starts_with "ws_" forces auth to be an
+-- object with a string workspaceId field.
+
+private theorem auth_ws_string (auth : Val)
+    (h : match Option.bind (some auth) (fun __v => Val.field' __v "workspaceId"),
+               some (Val.str "ws_") with
+         | some __lhs, some __rhs => Val.startsWith' __lhs __rhs = true
+         | _, _ => False) :
+    ∃ fields s, auth = Val.obj fields ∧
+      fieldLookup fields "workspaceId" = some (Val.str s) := by
+  simp only [Option.bind] at h
+  cases h_f : Val.field' auth "workspaceId" with
+  | none => rw [h_f] at h; simp at h
+  | some l =>
+    rw [h_f] at h
+    cases l with
+    | str s =>
+      cases auth with
+      | obj fields => exact ⟨fields, s, rfl, by simpa [Val.field'] using h_f⟩
+      | str _ => simp [Val.field'] at h_f
+      | num _ => simp [Val.field'] at h_f
+      | bool _ => simp [Val.field'] at h_f
+      | none => simp [Val.field'] at h_f
+      | arr _ => simp [Val.field'] at h_f
+    | num n => simp [Val.startsWith'] at h
+    | bool b => simp [Val.startsWith'] at h
+    | none => simp [Val.startsWith'] at h
+    | obj fs => simp [Val.startsWith'] at h
+    | arr es => simp [Val.startsWith'] at h
+
 -- Helper: evaluate arg obj [("workspaceId", .field (.var "auth") "workspaceId")]
 
 private theorem eval_arg_obj (n : Nat) (env : Env) (store : Store)
@@ -98,23 +128,12 @@ theorem exportWorkspaceData_ws_isolation
     (h_env_format : env "format" = some format)
     (h_store_auth : store "auth" = none)
     (h_store_format : store "format" = none)
-    (h_req_0 : ∃ __n_lhs_0 __n_rhs_0, Option.bind (some auth) (fun __v => Val.field' __v "workspaceId") = some (Val.num __n_lhs_0) ∧ some (Val.num 0) = some (Val.num __n_rhs_0) ∧ __n_lhs_0 > __n_rhs_0)
+    (h_req_0 : match Option.bind (some auth) (fun __v => Val.field' __v "workspaceId"), some (Val.str "ws_") with | some __lhs, some __rhs => Val.startsWith' __lhs __rhs = true | _, _ => False)
     (h_fuel : fuel ≥ 6)
     : ∀ c ∈ callsTo (eval fuel env store exportWorkspaceData_body).trace "db.*",
       argAtPath c "where.workspaceId" = Option.bind (some auth) (fun __v => Val.field' __v "workspaceId") := by
   rw [eval_fuel_mono 6 exportWorkspaceData_body (by decide) fuel h_fuel]
-  obtain ⟨n, _, h_ws, _, _⟩ := h_req_0
-  simp only [Option.bind] at h_ws
-  -- Deduce auth = Val.obj fields
-  have ⟨fields, h_auth_eq, h_fl⟩ : ∃ fields, auth = Val.obj fields ∧
-      fieldLookup fields "workspaceId" = some (Val.num n) := by
-    cases auth with
-    | obj fields => exact ⟨fields, rfl, by simpa [Val.field'] using h_ws⟩
-    | str _ => simp [Val.field'] at h_ws
-    | num _ => simp [Val.field'] at h_ws
-    | bool _ => simp [Val.field'] at h_ws
-    | none => simp [Val.field'] at h_ws
-    | arr _ => simp [Val.field'] at h_ws
+  obtain ⟨fields, s, h_auth_eq, h_fl⟩ := auth_ws_string auth h_req_0
   subst h_auth_eq
   simp only [Option.bind, Val.field', h_fl]
   intro c hc
@@ -122,7 +141,7 @@ theorem exportWorkspaceData_ws_isolation
   simp only [exportWorkspaceData_body] at hc
   rw [show (6:Nat) = 5+1 from rfl, eval_call_eq] at hc
   rw [evalPairsAux_pure_cons
-      (eval_arg_obj 5 env store fields (Val.num n) h_env_auth h_store_auth h_fl (by omega)),
+      (eval_arg_obj 5 env store fields (Val.str s) h_env_auth h_store_auth h_fl (by omega)),
       evalPairsAux_nil] at hc
   simp only [mkResult_outcome, mkResult_store, mkResult_trace,
              List.nil_append, List.append_nil] at hc
@@ -133,13 +152,13 @@ theorem exportWorkspaceData_ws_isolation
   | inl h1 =>
     have hp : matchesPattern "db.projects.findMany" "db.*" = true := by native_decide
     have := mem_callsTo_singleton hp h1; subst this
-    exact argAtPath_where_wsId "db.projects.findMany" "projects" (Val.num n)
+    exact argAtPath_where_wsId "db.projects.findMany" "projects" (Val.str s)
   | inr h2 =>
     have h_env_auth2 : (env.set "projects" Val.none) "auth" = some (Val.obj fields) := by
       simp [Env.set, show ("auth" : String) ≠ "projects" from by decide, h_env_auth]
     rw [show (5:Nat) = 4+1 from rfl, eval_call_eq] at h2
     rw [evalPairsAux_pure_cons
-        (eval_arg_obj 4 (env.set "projects" Val.none) store fields (Val.num n)
+        (eval_arg_obj 4 (env.set "projects" Val.none) store fields (Val.str s)
           h_env_auth2 h_store_auth h_fl (by omega)),
         evalPairsAux_nil] at h2
     simp only [mkResult_outcome, mkResult_store, mkResult_trace,
@@ -151,7 +170,7 @@ theorem exportWorkspaceData_ws_isolation
     | inl h2a =>
       have hp : matchesPattern "db.tasks.findMany" "db.*" = true := by native_decide
       have := mem_callsTo_singleton hp h2a; subst this
-      exact argAtPath_where_wsId "db.tasks.findMany" "tasks" (Val.num n)
+      exact argAtPath_where_wsId "db.tasks.findMany" "tasks" (Val.str s)
     | inr h2b =>
       exfalso
       have h_no_calls := ret_obj_vars_no_calls
@@ -163,7 +182,7 @@ theorem exportWorkspaceData_ws_isolation_canonical
     (fuel : Nat)
     (auth : Val)
     (format : Val)
-    (h_req_0 : ∃ __n_lhs_0 __n_rhs_0, Option.bind (some auth) (fun __v => Val.field' __v "workspaceId") = some (Val.num __n_lhs_0) ∧ some (Val.num 0) = some (Val.num __n_rhs_0) ∧ __n_lhs_0 > __n_rhs_0)
+    (h_req_0 : match Option.bind (some auth) (fun __v => Val.field' __v "workspaceId"), some (Val.str "ws_") with | some __lhs, some __rhs => Val.startsWith' __lhs __rhs = true | _, _ => False)
     (h_fuel : fuel ≥ 6)
     : ∀ c ∈ callsTo (eval fuel ((emptyEnv.set "auth" auth).set "format" format) emptyStore exportWorkspaceData_body).trace "db.*",
       argAtPath c "where.workspaceId" = Option.bind (some auth) (fun __v => Val.field' __v "workspaceId") := by

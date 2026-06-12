@@ -95,12 +95,20 @@ one artifact the human reviews is the one whose formal meaning can silently evap
 Fix: translation must **fail closed** — any annotation that does not translate to a
 non-trivial proposition is an extraction error, surfaced in `coverage`/`verify`.
 
-### 2.4 No vacuity / well-typedness checking of annotations (P0) — partially addressed
+### 2.4 No vacuity / well-typedness checking of annotations (P0) — **FIXED 2026-06**
 
-> 2026-06: the concrete instance is fixed (`reorderTasks.ts` now carries an
-> honest `scope-limited` tag and no ill-typed `@requires`). The systematic
-> fixes — type-checking annotation expressions against TS types and the
-> per-theorem satisfiability witness — remain open.
+> Fixed: `extractor/src/annotation-typecheck.ts` type-checks `@requires` and
+> `@ensures` (the *hypotheses* — a mistyped conclusion is fail-safe, merely
+> unprovable) against TS types: numeric ops on non-numbers, kind-mismatched
+> equalities, `starts_with`/`∈` kind errors, missing fields, and contradictory
+> numeric bounds (interval check) all fail extraction. This caught **three
+> more vacuous theorems** in the shipped examples (`exportWorkspaceData`,
+> `lookupProject`, `scopedUpdate` all carried `@requires auth.workspaceId > 0`
+> on a string field); their annotations are now
+> `auth.workspaceId starts_with "ws_"` — well-typed and still load-bearing —
+> and the proofs were redone against the honest hypothesis. A kernel-checked
+> witness term per theorem (vs this extractor-side check) is deferred —
+> revisit with the Phase 3 reflection engine.
 
 `examples/reorderTasks.ts` carries `@requires auth.workspaceId > 0` — a *string* field
 compared numerically. The generated hypothesis demands `auth.workspaceId` be a
@@ -356,18 +364,21 @@ the checker can't do is a candidate next feature.
 1. ✅ **DONE 2026-06** — Fix error-swallowing folds in `eval` (§2.2); EvalEq/
    ForOfCallsTo/LoopInvariant reworked; examples re-proved; #guard tests added.
 2. ✅ **DONE 2026-06** — Fail-closed annotation translation (§2.3).
-3. ◐ Partial — `reorderTasks` annotations fixed; annotation type-checking +
-   per-theorem satisfiability witness (§2.4) still open.
+3. ✅ **DONE 2026-06** — annotation type-checking + contradiction detection
+   (`annotation-typecheck.ts`); all four example vacuity instances fixed
+   (§2.4). Kernel-checked witnesses deferred to Phase 3.
 4. ✅ **DONE 2026-06** — `Expr.depth` + `eval_fuel_mono` (FuelMono.lean);
    generated theorems take `fuel ≥ N` (§2.5).
 5. ✅ **DONE 2026-06** — `scripts/ci.sh`: builds both projects, sorry audit
    (TaintSoundness allowlisted), native_decide forbidden in the library,
    extractor round-trip idempotence over examples.
-6. ◐ Mostly done — `push`/`letMut` fixed (§2.8); extractor rejects `/`, `%`,
-   object `===`/`!==`, and unknown operators (no more silent `add` fallback) —
-   rejected code extracts as `sorry`. Still open: write the JS-divergence
-   contract document (§2.9: Int vs float, field/index on non-objects → `ok
-   none`, no undefined/null distinction, Promise.all sequentialization).
+6. ✅ **DONE 2026-06** — `push`/`letMut` fixed (§2.8); extractor rejects `/`,
+   `%`, object `===`/`!==`, unknown operators; **SEMANTICS.md** is the
+   divergence contract (§2.9). Writing it surfaced one more divergence —
+   `arr[-1]` clamped to index 0 instead of yielding `none` — fixed in eval and
+   pinned by #guard tests.
+
+**Phase 0 is complete.**
 
 Exit criterion: every theorem that CI reports "proved" means what the annotation says,
 for all sufficient fuels, with no vacuous hypotheses.

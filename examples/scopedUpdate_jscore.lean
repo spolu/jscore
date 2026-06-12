@@ -35,6 +35,36 @@ private theorem argAtPath_where_wsId_2 (target resultId : String) (idVal wsVal :
   simp only [argAtPath, h1, argLookup, fieldLookup, List.find?, List.foldl,
              h2, h3, h4, ite_true, ite_false]
 
+-- Helper: @requires auth.workspaceId starts_with "ws_" forces auth to be an
+-- object with a string workspaceId field.
+
+private theorem auth_ws_string (auth : Val)
+    (h : match Option.bind (some auth) (fun __v => Val.field' __v "workspaceId"),
+               some (Val.str "ws_") with
+         | some __lhs, some __rhs => Val.startsWith' __lhs __rhs = true
+         | _, _ => False) :
+    ∃ fields s, auth = Val.obj fields ∧
+      fieldLookup fields "workspaceId" = some (Val.str s) := by
+  simp only [Option.bind] at h
+  cases h_f : Val.field' auth "workspaceId" with
+  | none => rw [h_f] at h; simp at h
+  | some l =>
+    rw [h_f] at h
+    cases l with
+    | str s =>
+      cases auth with
+      | obj fields => exact ⟨fields, s, rfl, by simpa [Val.field'] using h_f⟩
+      | str _ => simp [Val.field'] at h_f
+      | num _ => simp [Val.field'] at h_f
+      | bool _ => simp [Val.field'] at h_f
+      | none => simp [Val.field'] at h_f
+      | arr _ => simp [Val.field'] at h_f
+    | num n => simp [Val.startsWith'] at h
+    | bool b => simp [Val.startsWith'] at h
+    | none => simp [Val.startsWith'] at h
+    | obj fs => simp [Val.startsWith'] at h
+    | arr es => simp [Val.startsWith'] at h
+
 -- Helper: evaluate the arg obj for the findUnique call
 
 private theorem eval_findUnique_arg (n : Nat) (env : Env) (store : Store)
@@ -141,23 +171,13 @@ theorem lookupProject_ws_isolation
     (h_env_projectId : env "projectId" = some projectId)
     (h_store_auth : store "auth" = none)
     (h_store_projectId : store "projectId" = none)
-    (h_req_0 : ∃ __n_lhs_0 __n_rhs_0, Option.bind (some auth) (fun __v => Val.field' __v "workspaceId") = some (Val.num __n_lhs_0) ∧ some (Val.num 0) = some (Val.num __n_rhs_0) ∧ __n_lhs_0 > __n_rhs_0)
+    (h_req_0 : match Option.bind (some auth) (fun __v => Val.field' __v "workspaceId"), some (Val.str "ws_") with | some __lhs, some __rhs => Val.startsWith' __lhs __rhs = true | _, _ => False)
     (h_fuel : fuel ≥ 5)
     : ∀ c ∈ callsTo (eval fuel env store lookupProject_body).trace "db.*",
       argAtPath c "where.workspaceId" = Option.bind (some auth) (fun __v => Val.field' __v "workspaceId") := by
   rw [eval_fuel_mono 5 lookupProject_body (by decide) fuel h_fuel]
   -- Extract auth structure from @requires
-  obtain ⟨n, _, h_ws, _, _⟩ := h_req_0
-  simp only [Option.bind] at h_ws
-  have ⟨fields, h_auth_eq, h_fl⟩ : ∃ fields, auth = Val.obj fields ∧
-      fieldLookup fields "workspaceId" = some (Val.num n) := by
-    cases auth with
-    | obj fields => exact ⟨fields, rfl, by simpa [Val.field'] using h_ws⟩
-    | str _ => simp [Val.field'] at h_ws
-    | num _ => simp [Val.field'] at h_ws
-    | bool _ => simp [Val.field'] at h_ws
-    | none => simp [Val.field'] at h_ws
-    | arr _ => simp [Val.field'] at h_ws
+  obtain ⟨fields, s, h_auth_eq, h_fl⟩ := auth_ws_string auth h_req_0
   subst h_auth_eq
   simp only [Option.bind, Val.field', h_fl]
   intro c hc
@@ -167,7 +187,7 @@ theorem lookupProject_ws_isolation
     rw [lookup_none h_store_projectId, h_env_projectId]
   rw [show (5:Nat) = 4+1 from rfl, eval_call_eq] at hc
   rw [evalPairsAux_pure_cons
-      (eval_findUnique_arg 4 env store fields projectId (Val.num n)
+      (eval_findUnique_arg 4 env store fields projectId (Val.str s)
         h_env_auth h_store_auth h_fl h_l_pid (by omega)),
       evalPairsAux_nil] at hc
   simp only [mkResult_outcome, mkResult_store, mkResult_trace,
@@ -179,7 +199,7 @@ theorem lookupProject_ws_isolation
   | inl h1 =>
     have hp : matchesPattern "db.project.findUnique" "db.*" = true := by native_decide
     have := mem_callsTo_singleton hp h1; subst this
-    exact argAtPath_where_wsId_2 "db.project.findUnique" "project" projectId (Val.num n)
+    exact argAtPath_where_wsId_2 "db.project.findUnique" "project" projectId (Val.str s)
   | inr h2 =>
     -- ret (var "project") produces no calls
     exfalso
@@ -192,7 +212,7 @@ theorem lookupProject_ws_isolation_canonical
     (fuel : Nat)
     (auth : Val)
     (projectId : Val)
-    (h_req_0 : ∃ __n_lhs_0 __n_rhs_0, Option.bind (some auth) (fun __v => Val.field' __v "workspaceId") = some (Val.num __n_lhs_0) ∧ some (Val.num 0) = some (Val.num __n_rhs_0) ∧ __n_lhs_0 > __n_rhs_0)
+    (h_req_0 : match Option.bind (some auth) (fun __v => Val.field' __v "workspaceId"), some (Val.str "ws_") with | some __lhs, some __rhs => Val.startsWith' __lhs __rhs = true | _, _ => False)
     (h_fuel : fuel ≥ 5)
     : ∀ c ∈ callsTo (eval fuel ((emptyEnv.set "auth" auth).set "projectId" projectId) emptyStore lookupProject_body).trace "db.*",
       argAtPath c "where.workspaceId" = Option.bind (some auth) (fun __v => Val.field' __v "workspaceId") := by
@@ -257,10 +277,7 @@ theorem scopedUpdate_scoped_update
     (h_store_auth : store "auth" = none)
     (h_store_kind : store "kind" = none)
     (h_store_itemId : store "itemId" = none)
-    (h_req_0 : ∃ __n_lhs_0 __n_rhs_0,
-      Option.bind (some auth) (fun __v => Val.field' __v "workspaceId") =
-        some (Val.num __n_lhs_0) ∧
-      some (Val.num 0) = some (Val.num __n_rhs_0) ∧ __n_lhs_0 > __n_rhs_0)
+    (h_req_0 : match Option.bind (some auth) (fun __v => Val.field' __v "workspaceId"), some (Val.str "ws_") with | some __lhs, some __rhs => Val.startsWith' __lhs __rhs = true | _, _ => False)
     (h_req_1 : some kind = some (Val.str "workspace"))
     (__ensures_item : Val)
     (h_env___ensures_item : env "__ensures_item" = some __ensures_item)
@@ -274,23 +291,13 @@ theorem scopedUpdate_scoped_update
         Option.bind (some auth) (fun __v => Val.field' __v "workspaceId") := by
   rw [eval_fuel_mono 9 scopedUpdate_body (by decide) fuel h_fuel]
   -- Phase 1: Extract structure from hypotheses
-  obtain ⟨n, _, h_ws, _, _⟩ := h_req_0
-  simp only [Option.bind] at h_ws
-  have ⟨auth_fields, h_auth_eq, h_fl_auth⟩ : ∃ fs, auth = Val.obj fs ∧
-      fieldLookup fs "workspaceId" = some (Val.num n) := by
-    cases auth with
-    | obj fs => exact ⟨fs, rfl, by simpa [Val.field'] using h_ws⟩
-    | str _ => simp [Val.field'] at h_ws
-    | num _ => simp [Val.field'] at h_ws
-    | bool _ => simp [Val.field'] at h_ws
-    | none => simp [Val.field'] at h_ws
-    | arr _ => simp [Val.field'] at h_ws
+  obtain ⟨auth_fields, s, h_auth_eq, h_fl_auth⟩ := auth_ws_string auth h_req_0
   subst h_auth_eq
   have h_kind : kind = Val.str "workspace" := by cases h_req_1; rfl
   subst h_kind
   simp only [Option.bind, Val.field', h_fl_auth] at h_ensures_0
   have ⟨item_fields, h_item_eq, h_fl_item⟩ : ∃ fs, __ensures_item = Val.obj fs ∧
-      fieldLookup fs "workspaceId" = some (Val.num n) := by
+      fieldLookup fs "workspaceId" = some (Val.str s) := by
     cases __ensures_item with
     | obj fs => exact ⟨fs, rfl, by simpa [Val.field'] using h_ensures_0⟩
     | str _ => simp [Val.field'] at h_ensures_0
@@ -360,7 +367,7 @@ theorem scopedUpdate_scoped_update
   rw [show (5:Nat) = 4+1 from rfl, eval_call_eq] at h_body
   rw [evalPairsAux_pure_cons
       (eval_update_where_2 4 ((env.set "__call_2" Val.none).set "item" (Val.obj item_fields))
-        store item_fields (Val.num n) h_env₂_item h_store_item h_fl_item (by omega))] at h_body
+        store item_fields (Val.str s) h_env₂_item h_store_item h_fl_item (by omega))] at h_body
   rw [evalPairsAux_pure_cons
       (eval_data_arg 4 ((env.set "__call_2" Val.none).set "item" (Val.obj item_fields))
         store (by omega))] at h_body
@@ -375,7 +382,7 @@ theorem scopedUpdate_scoped_update
     have := mem_callsTo_singleton hp h_call; subst this
     exact argAtPath_update_wsId "db.item.update" "__void_0"
       (match fieldLookup item_fields "id" with | some v => v | none => Val.none)
-      (Val.num n)
+      (Val.str s)
   | inr h_rest =>
     exfalso
     rw [eval_none_trace, callsTo_nil] at h_rest

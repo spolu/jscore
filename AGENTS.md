@@ -89,7 +89,7 @@ Lean outputs are generated under `examples/`, collocated with their `.ts` source
 - ~~Unparseable annotations silently translate to `True`~~ — **FIXED 2026-06**: translation is fail-closed (`AnnotationTranslationError`); extraction fails with a non-zero exit and no `.lean` output.
 - ~~`push` breaks Env/Store disjointness~~ — **FIXED 2026-06**: pushed arrays extract as `letMut` even when `const`; eval's `push` is Store-only and errors on Env-bound names.
 - ~~Fuel-pinned theorems~~ — **FIXED 2026-06**: `Metatheory/FuelMono.lean` proves `eval_fuel_mono` (`Expr.depth e ≤ n ≤ m → eval m = eval n`); generated theorems take `h_fuel : fuel ≥ N`, and proofs open with `rw [eval_fuel_mono N <fn>_body (by decide) fuel h_fuel]`.
-- Annotations are not type-checked against TS types; ill-typed `@requires` yields unsatisfiable hypotheses making all runtime theorems vacuous (the known instance in `reorderTasks.ts` is fixed; the systematic check is open).
+- ~~Annotations not type-checked against TS types~~ — **FIXED 2026-06**: `annotation-typecheck.ts` rejects ill-typed/contradictory `@requires`/`@ensures` (fail-closed). See [SEMANTICS.md](SEMANTICS.md) for the full model-vs-JS divergence contract.
 - `TraceEntry.scopeEnd` is never emitted by `eval` or the extractor, so `inside`/transaction invariants are unprovable.
 
 CI gate: `scripts/ci.sh` — builds both projects, audits sorry/native_decide, checks extractor round-trip idempotence. Run it before considering any change done.

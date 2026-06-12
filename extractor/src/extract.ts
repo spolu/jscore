@@ -14,6 +14,7 @@ import {
   EnsuresAnnotation,
 } from "./annotation-parser";
 import { generateTheorem, AnnotationTranslationError } from "./lean-theorem";
+import { checkAnnotationTypes } from "./annotation-typecheck";
 import { mergeProofs } from "./proof-merge";
 import * as fs from "fs";
 import * as path from "path";
@@ -78,6 +79,10 @@ export function extractFile(
     // Collect @ensures from inline comments in the function body
     const bodyEnsures = collectInlineEnsures(func);
     const ensuresBindings = new Set(bodyEnsures.map((e) => e.binding));
+
+    // Vacuity guard: type-check hypothesis annotations against TS types and
+    // reject contradictory numeric constraints (fail-closed).
+    checkAnnotationTypes(func, reqs, bodyEnsures, name);
 
     // Extract the function body
     const expr = extractFunction(func, checker, 1000, ensuresBindings);

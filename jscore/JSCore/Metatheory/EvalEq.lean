@@ -234,10 +234,11 @@ theorem eval_index_eq {n : Nat} {env : Env} {store : Store} {e idx : Expr} :
        let ri := eval n env re.store idx
        match ri.outcome with
        | .ok (.num i) =>
-         let idx' := if i ≥ 0 then i.toNat else 0
-         match elems.get? idx' with
-         | some v => mkResult (.ok v) ri.store (re.trace ++ ri.trace)
-         | Option.none => mkResult (.ok .none) ri.store (re.trace ++ ri.trace)
+         if i ≥ 0 then
+           match elems.get? i.toNat with
+           | some v => mkResult (.ok v) ri.store (re.trace ++ ri.trace)
+           | Option.none => mkResult (.ok .none) ri.store (re.trace ++ ri.trace)
+         else mkResult (.ok .none) ri.store (re.trace ++ ri.trace)
        | .ok _ => mkResult (.error (.str "index not a number")) ri.store (re.trace ++ ri.trace)
        | _ => mkResult ri.outcome ri.store (re.trace ++ ri.trace)
      | .ok _ => mkResult (.error (.str "index on non-array")) re.store re.trace

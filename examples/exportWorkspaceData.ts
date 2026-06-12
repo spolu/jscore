@@ -14,7 +14,7 @@ declare const db: {
   };
 };
 
-// @requires auth.workspaceId > 0
+// @requires auth.workspaceId starts_with "ws_"
 // @invariant ws-isolation: ∀ call db.* (c) => c.where.workspaceId = auth.workspaceId
 // @invariant read-only: ¬ ∃ call db.*.update
 // @invariant read-only: ¬ ∃ call db.*.create
