@@ -5,6 +5,8 @@ import JSCore.Trace
 import JSCore.Properties
 import JSCore.Taint
 import JSCore.Tactics
+import JSCore.Metatheory.EvalEq
+import JSCore.Metatheory.FuelMono
 
 open JSCore
 

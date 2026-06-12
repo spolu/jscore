@@ -5,8 +5,9 @@ import JSCore.Trace
 import JSCore.Properties
 import JSCore.Taint
 import JSCore.Tactics
-
 import JSCore.Metatheory.EvalEq
+import JSCore.Metatheory.FuelMono
+
 import JSCore.Metatheory.TraceComposition
 import JSCore.Metatheory.LoopInvariant
 import JSCore.Metatheory.ForOfCallsTo
@@ -168,10 +169,10 @@ theorem reorderTasks_scope_limited
     (h_store_auth : store "auth" = none)
     (h_store_projectId : store "projectId" = none)
     (h_store_tasks : store "tasks" = none)
-    (h_fuel : fuel = 6)
+    (h_fuel : fuel ≥ 6)
     : ∀ c ∈ callsTo (eval fuel env store reorderTasks_body).trace "db.*",
       argAtPath c "where.projectId" = some projectId := by
-  subst h_fuel
+  rw [eval_fuel_mono 6 reorderTasks_body (by decide) fuel h_fuel]
   intro c hc
   cases h_tasks : tasks with
   | arr elems =>

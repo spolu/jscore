@@ -226,6 +226,52 @@ theorem eval_spread_eq {n : Nat} {env : Env} {store : Store}
      | .ok _ => mkResult (.error (.str "spread on non-object")) rb.store rb.trace
      | _ => rb) := rfl
 
+theorem eval_index_eq {n : Nat} {env : Env} {store : Store} {e idx : Expr} :
+    eval (n + 1) env store (Expr.index e idx) =
+    (let re := eval n env store e
+     match re.outcome with
+     | .ok (.arr elems) =>
+       let ri := eval n env re.store idx
+       match ri.outcome with
+       | .ok (.num i) =>
+         let idx' := if i ≥ 0 then i.toNat else 0
+         match elems.get? idx' with
+         | some v => mkResult (.ok v) ri.store (re.trace ++ ri.trace)
+         | Option.none => mkResult (.ok .none) ri.store (re.trace ++ ri.trace)
+       | .ok _ => mkResult (.error (.str "index not a number")) ri.store (re.trace ++ ri.trace)
+       | _ => mkResult ri.outcome ri.store (re.trace ++ ri.trace)
+     | .ok _ => mkResult (.error (.str "index on non-array")) re.store re.trace
+     | _ => re) := rfl
+
+theorem eval_push_eq {n : Nat} {env : Env} {store : Store}
+    {arrName : String} {valExpr : Expr} :
+    eval (n + 1) env store (Expr.push arrName valExpr) =
+    (let rv := eval n env store valExpr
+     match rv.outcome with
+     | .ok v =>
+       match rv.store arrName with
+       | some (.arr elems) =>
+         let newArr := Val.arr (elems ++ [v])
+         mkResult (.ok newArr) (rv.store.set arrName newArr) rv.trace
+       | _ => mkResult (.error (.str s!"push on non-array: {arrName}")) rv.store rv.trace
+     | _ => rv) := rfl
+
+theorem eval_whileLoop_eq {n : Nat} {env : Env} {store : Store}
+    {loopFuel : Nat} {cond body : Expr} :
+    eval (n + 1) env store (Expr.whileLoop loopFuel cond body) =
+    evalWhileAux loopFuel
+      (fun st => eval n env st cond)
+      (fun st => eval n env st body)
+      store [] := rfl
+
+theorem eval_unOp_eq {n : Nat} {env : Env} {store : Store}
+    {op : UnOp} {e : Expr} :
+    eval (n + 1) env store (Expr.unOp op e) =
+    (let r := eval n env store e
+     match r.outcome with
+     | .ok v => mkResult (evalUnOp op v) r.store r.trace
+     | _ => r) := rfl
+
 theorem eval_binOp_eq {n : Nat} {env : Env} {store : Store}
     {op : BinOp} {e1 e2 : Expr} :
     eval (n + 1) env store (Expr.binOp op e1 e2) =

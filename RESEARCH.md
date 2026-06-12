@@ -114,7 +114,17 @@ reviewer reading only annotations would mis-approve. Fixes:
   for which all hypotheses hold, checked by `decide`/evaluation. A theorem whose
   hypotheses admit no witness should fail CI.
 
-### 2.5 Fuel-pinned theorems, no fuel monotonicity (P1)
+### 2.5 Fuel-pinned theorems, no fuel monotonicity (P1) — **FIXED 2026-06**
+
+> Fixed: `Metatheory/FuelMono.lean` defines `Expr.depth` (mirroring the
+> extractor's `depthFuel`) and proves `eval_fuel_mono` — any fuel ≥ the term's
+> structural depth yields the same result (induction on fuel; congruence
+> lemmas for the closure-taking helpers). The extractor now emits
+> `h_fuel : fuel ≥ N`, and proofs open with
+> `rw [eval_fuel_mono N body (by decide) fuel h_fuel]`. Generated theorems now
+> quantify over all sufficient fuels.
+
+Original finding (kept for the record):
 
 Generated theorems take `(h_fuel : fuel = 8)`. The proved statement is about `eval 8`,
 not about "the execution"; nothing connects fuel 8 to fuel 9. Because `eval`'s fuel
@@ -348,7 +358,8 @@ the checker can't do is a candidate next feature.
 2. ✅ **DONE 2026-06** — Fail-closed annotation translation (§2.3).
 3. ◐ Partial — `reorderTasks` annotations fixed; annotation type-checking +
    per-theorem satisfiability witness (§2.4) still open.
-4. ☐ `sufficientFuel` + `eval_fuel_mono`; restate generated theorems (§2.5).
+4. ✅ **DONE 2026-06** — `Expr.depth` + `eval_fuel_mono` (FuelMono.lean);
+   generated theorems take `fuel ≥ N` (§2.5).
 5. ✅ **DONE 2026-06** — `scripts/ci.sh`: builds both projects, sorry audit
    (TaintSoundness allowlisted), native_decide forbidden in the library,
    extractor round-trip idempotence over examples.

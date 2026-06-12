@@ -5,8 +5,9 @@ import JSCore.Trace
 import JSCore.Properties
 import JSCore.Taint
 import JSCore.Tactics
-
 import JSCore.Metatheory.EvalEq
+import JSCore.Metatheory.FuelMono
+
 import JSCore.Metatheory.TraceComposition
 
 open JSCore
@@ -141,10 +142,10 @@ theorem lookupProject_ws_isolation
     (h_store_auth : store "auth" = none)
     (h_store_projectId : store "projectId" = none)
     (h_req_0 : ∃ __n_lhs_0 __n_rhs_0, Option.bind (some auth) (fun __v => Val.field' __v "workspaceId") = some (Val.num __n_lhs_0) ∧ some (Val.num 0) = some (Val.num __n_rhs_0) ∧ __n_lhs_0 > __n_rhs_0)
-    (h_fuel : fuel = 5)
+    (h_fuel : fuel ≥ 5)
     : ∀ c ∈ callsTo (eval fuel env store lookupProject_body).trace "db.*",
       argAtPath c "where.workspaceId" = Option.bind (some auth) (fun __v => Val.field' __v "workspaceId") := by
-  subst h_fuel
+  rw [eval_fuel_mono 5 lookupProject_body (by decide) fuel h_fuel]
   -- Extract auth structure from @requires
   obtain ⟨n, _, h_ws, _, _⟩ := h_req_0
   simp only [Option.bind] at h_ws
@@ -192,7 +193,7 @@ theorem lookupProject_ws_isolation_canonical
     (auth : Val)
     (projectId : Val)
     (h_req_0 : ∃ __n_lhs_0 __n_rhs_0, Option.bind (some auth) (fun __v => Val.field' __v "workspaceId") = some (Val.num __n_lhs_0) ∧ some (Val.num 0) = some (Val.num __n_rhs_0) ∧ __n_lhs_0 > __n_rhs_0)
-    (h_fuel : fuel = 5)
+    (h_fuel : fuel ≥ 5)
     : ∀ c ∈ callsTo (eval fuel ((emptyEnv.set "auth" auth).set "projectId" projectId) emptyStore lookupProject_body).trace "db.*",
       argAtPath c "where.workspaceId" = Option.bind (some auth) (fun __v => Val.field' __v "workspaceId") := by
   intro c hc
@@ -267,11 +268,11 @@ theorem scopedUpdate_scoped_update
     (h_ensures_0 : Option.bind (some __ensures_item) (fun __v => Val.field' __v "workspaceId") =
       Option.bind (some auth) (fun __v => Val.field' __v "workspaceId"))
     (h_store_item : store "item" = none)
-    (h_fuel : fuel = 9)
+    (h_fuel : fuel ≥ 9)
     : ∀ c ∈ callsTo (eval fuel env store scopedUpdate_body).trace "db.item.update",
       argAtPath c "where.workspaceId" =
         Option.bind (some auth) (fun __v => Val.field' __v "workspaceId") := by
-  subst h_fuel
+  rw [eval_fuel_mono 9 scopedUpdate_body (by decide) fuel h_fuel]
   -- Phase 1: Extract structure from hypotheses
   obtain ⟨n, _, h_ws, _, _⟩ := h_req_0
   simp only [Option.bind] at h_ws

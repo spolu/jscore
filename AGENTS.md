@@ -88,8 +88,8 @@ Lean outputs are generated under `examples/`, collocated with their `.ts` source
 - ~~`eval` foldls swallow errors~~ — **FIXED 2026-06**: obj/arr/spread/call-args short-circuit on errors, calls with failing args are not recorded, `break` stops forOf. Pinned by `JSCore/Tests.lean`.
 - ~~Unparseable annotations silently translate to `True`~~ — **FIXED 2026-06**: translation is fail-closed (`AnnotationTranslationError`); extraction fails with a non-zero exit and no `.lean` output.
 - ~~`push` breaks Env/Store disjointness~~ — **FIXED 2026-06**: pushed arrays extract as `letMut` even when `const`; eval's `push` is Store-only and errors on Env-bound names.
+- ~~Fuel-pinned theorems~~ — **FIXED 2026-06**: `Metatheory/FuelMono.lean` proves `eval_fuel_mono` (`Expr.depth e ≤ n ≤ m → eval m = eval n`); generated theorems take `h_fuel : fuel ≥ N`, and proofs open with `rw [eval_fuel_mono N <fn>_body (by decide) fuel h_fuel]`.
 - Annotations are not type-checked against TS types; ill-typed `@requires` yields unsatisfiable hypotheses making all runtime theorems vacuous (the known instance in `reorderTasks.ts` is fixed; the systematic check is open).
-- Runtime theorems are pinned to one fuel value (`h_fuel : fuel = N`); no fuel-monotonicity lemma exists.
 - `TraceEntry.scopeEnd` is never emitted by `eval` or the extractor, so `inside`/transaction invariants are unprovable.
 
 CI gate: `scripts/ci.sh` — builds both projects, audits sorry/native_decide, checks extractor round-trip idempotence. Run it before considering any change done.
@@ -97,6 +97,7 @@ CI gate: `scripts/ci.sh` — builds both projects, audits sorry/native_decide, c
 ## Proof Strategy for Runtime Theorems
 
 Key tactics and lemmas for closing `sorry` in extracted files:
+- **First step of every runtime proof**: `rw [eval_fuel_mono N <fn>_body (by decide) fuel h_fuel]` — converts `eval fuel` to `eval N` using `h_fuel : fuel ≥ N` (FuelMono.lean; `Expr.depth` mirrors the extractor's `depthFuel`)
 - `trace_simp` — fully concrete cases
 - `forOf_invariant` / `forOf_invariant'` — loop invariants on `evalForOf` (which eval's forOf case computes definitionally)
 - `forOf_callsTo` — callsTo invariant for forOf loops (see below)

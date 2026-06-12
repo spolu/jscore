@@ -5,8 +5,9 @@ import JSCore.Trace
 import JSCore.Properties
 import JSCore.Taint
 import JSCore.Tactics
-
 import JSCore.Metatheory.EvalEq
+import JSCore.Metatheory.FuelMono
+
 import JSCore.Metatheory.TraceComposition
 
 open JSCore
@@ -98,10 +99,10 @@ theorem exportWorkspaceData_ws_isolation
     (h_store_auth : store "auth" = none)
     (h_store_format : store "format" = none)
     (h_req_0 : ∃ __n_lhs_0 __n_rhs_0, Option.bind (some auth) (fun __v => Val.field' __v "workspaceId") = some (Val.num __n_lhs_0) ∧ some (Val.num 0) = some (Val.num __n_rhs_0) ∧ __n_lhs_0 > __n_rhs_0)
-    (h_fuel : fuel = 6)
+    (h_fuel : fuel ≥ 6)
     : ∀ c ∈ callsTo (eval fuel env store exportWorkspaceData_body).trace "db.*",
       argAtPath c "where.workspaceId" = Option.bind (some auth) (fun __v => Val.field' __v "workspaceId") := by
-  subst h_fuel
+  rw [eval_fuel_mono 6 exportWorkspaceData_body (by decide) fuel h_fuel]
   obtain ⟨n, _, h_ws, _, _⟩ := h_req_0
   simp only [Option.bind] at h_ws
   -- Deduce auth = Val.obj fields
@@ -163,7 +164,7 @@ theorem exportWorkspaceData_ws_isolation_canonical
     (auth : Val)
     (format : Val)
     (h_req_0 : ∃ __n_lhs_0 __n_rhs_0, Option.bind (some auth) (fun __v => Val.field' __v "workspaceId") = some (Val.num __n_lhs_0) ∧ some (Val.num 0) = some (Val.num __n_rhs_0) ∧ __n_lhs_0 > __n_rhs_0)
-    (h_fuel : fuel = 6)
+    (h_fuel : fuel ≥ 6)
     : ∀ c ∈ callsTo (eval fuel ((emptyEnv.set "auth" auth).set "format" format) emptyStore exportWorkspaceData_body).trace "db.*",
       argAtPath c "where.workspaceId" = Option.bind (some auth) (fun __v => Val.field' __v "workspaceId") := by
   intro c hc

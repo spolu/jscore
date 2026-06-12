@@ -123,7 +123,7 @@ export function generateTheorem(
     lines.push(`    (h_ensures_${i} : ${ensPred})`);
   }
 
-  lines.push(`    (h_fuel : fuel = ${runtimeFuel})`);
+  lines.push(`    (h_fuel : fuel ≥ ${runtimeFuel})`);
 
   lines.push(
     `    : ${buildRuntimeConclusion(functionName, translation, "fuel", "env", "store")} := by`
@@ -356,7 +356,7 @@ function buildCanonicalRuntimeTheorem(input: CanonicalRuntimeTheoremInput): stri
     const req = translateRequireToLean(requires[i].prop, params, i, functionName);
     lines.push(`    (h_req_${i} : ${req})`);
   }
-  lines.push(`    (h_fuel : fuel = ${runtimeFuel})`);
+  lines.push(`    (h_fuel : fuel ≥ ${runtimeFuel})`);
   lines.push(
     `    : ${buildRuntimeConclusion(functionName, runtimeInvariant, "fuel", canonicalEnv, "emptyStore")} := by`
   );
