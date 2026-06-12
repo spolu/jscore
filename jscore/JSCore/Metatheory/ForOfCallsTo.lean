@@ -17,7 +17,7 @@ namespace JSCore
     preserved across forOf iterations. Use after `rw [eval_forOf_eq]` exposes
     `evalForOf` in the goal. -/
 theorem forOf_callsTo (fuel : Nat) (env : Env)
-    (x : String) (elems : List Val) (body : Expr) (pattern : String)
+    (x : String) (elems : List Val) (body : Expr) (pattern : List String)
     (P : CallRecord → Prop) (I : Store → Prop)
     (store : Store) (pfx : List TraceEntry)
     (h_I : I store)

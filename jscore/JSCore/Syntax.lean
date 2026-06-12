@@ -40,8 +40,10 @@ inductive Expr where
   | whileLoop : Nat → Expr → Expr → Expr
   | «break»  : Expr
   | ret      : Expr → Expr
-  -- Effects
-  | call     : String → List (String × Expr) → String → Expr → Expr
+  -- Effects. The target is pre-split into segments ("db.task.update" →
+  -- ["db", "task", "update"]) so pattern matching never needs String.splitOn
+  -- and stays kernel-decidable.
+  | call     : List String → List (String × Expr) → String → Expr → Expr
   -- Errors
   | throw    : Expr → Expr
   | tryCatch : Expr → String → Expr → Expr

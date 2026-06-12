@@ -12,17 +12,17 @@ import JSCore.Metatheory.ArgAt
 open JSCore
 
 def rotateApiKey_body : Expr :=
-  (.call "generateKey"
+  (.call ["generateKey"]
     []
     "newKey"
-    (.call "db.apiKey.update"
+    (.call ["db", "apiKey", "update"]
       [("where", (.obj [
   ("id", (.var "keyId"))
 ])), ("data", (.obj [
   ("key", (.var "apiKey"))
 ]))]
       "__void_0"
-      (.call "logger.info"
+      (.call ["logger", "info"]
         [("arg0", (.binOp .add
   (.strLit "rotated:")
   (.var "keyId")))]
@@ -30,5 +30,5 @@ def rotateApiKey_body : Expr :=
         Expr.none)))
 
 theorem rotateApiKey_no_secret_leak
-    : notTaintedIn rotateApiKey_body "apiKey" "logger.*" = true := by
-  native_decide
+    : notTaintedIn rotateApiKey_body "apiKey" ["logger", "*"] = true := by
+  decide

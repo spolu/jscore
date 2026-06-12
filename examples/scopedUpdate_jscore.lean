@@ -14,7 +14,7 @@ import JSCore.Metatheory.TraceComposition
 open JSCore
 
 def lookupProject_body : Expr :=
-  (.call "db.project.findUnique"
+  (.call ["db", "project", "findUnique"]
     [("where", (.obj [
   ("id", (.var "projectId")),
   ("workspaceId", (.field
@@ -51,38 +51,6 @@ private theorem auth_ws_string (auth : Val)
     | none => simp [Val.startsWith'] at h
     | obj fs => simp [Val.startsWith'] at h
     | arr es => simp [Val.startsWith'] at h
-
--- Helper: evaluate the arg obj for the findUnique call
-
-private theorem eval_findUnique_arg (n : Nat) (env : Env) (store : Store)
-    (fields : List (String × Val)) (idVal wsVal : Val)
-    (h_env_auth : env "auth" = some (Val.obj fields))
-    (h_store_auth : store "auth" = none)
-    (h_fl : fieldLookup fields "workspaceId" = some wsVal)
-    (h_env_id : lookup env store "projectId" = some idVal)
-    (hn : n ≥ 4) :
-    eval n env store (.obj [("id", .var "projectId"), ("workspaceId", .field (.var "auth") "workspaceId")]) =
-    mkResult (.ok (Val.obj [("id", idVal), ("workspaceId", wsVal)])) store [] := by
-  obtain ⟨n', rfl⟩ : ∃ n', n = n' + 4 := ⟨n - 4, by omega⟩
-  rw [show n' + 4 = (n' + 3) + 1 from by omega, eval_obj_eq]
-  rw [evalPairsAux_pure_cons (v := idVal)
-      (by rw [show n' + 3 = (n' + 2) + 1 from by omega, eval_var_eq, h_env_id])]
-  rw [evalPairsAux_pure_cons (eval_field_var h_env_auth h_store_auth h_fl (by omega))]
-  rw [evalPairsAux_nil]
-  rfl
-
--- Helper: evaluate obj [("id", var "itemId")]
-
-private theorem eval_id_arg (n : Nat) (env : Env) (store : Store) (idVal : Val)
-    (h_id : lookup env store "itemId" = some idVal) (hn : n ≥ 3) :
-    eval n env store (.obj [("id", .var "itemId")]) =
-    mkResult (.ok (Val.obj [("id", idVal)])) store [] := by
-  obtain ⟨n', rfl⟩ : ∃ n', n = n' + 3 := ⟨n - 3, by omega⟩
-  rw [show n' + 3 = (n' + 2) + 1 from by omega, eval_obj_eq]
-  rw [evalPairsAux_pure_cons (v := idVal)
-      (by rw [show n' + 2 = (n' + 1) + 1 from by omega, eval_var_eq, h_id])]
-  rw [evalPairsAux_nil]
-  rfl
 
 -- Helper: field access on item (field may or may not exist)
 
@@ -124,18 +92,6 @@ private theorem eval_update_where_2 (n : Nat) (env : Env) (store : Store)
   rw [evalPairsAux_nil]
   rfl
 
--- Helper: evaluate "data" obj [("updatedAt", strLit "now")]
-
-private theorem eval_data_arg (n : Nat) (env : Env) (store : Store) (hn : n ≥ 3) :
-    eval n env store (.obj [("updatedAt", .strLit "now")]) =
-    mkResult (.ok (Val.obj [("updatedAt", Val.str "now")])) store [] := by
-  obtain ⟨n', rfl⟩ : ∃ n', n = n' + 3 := ⟨n - 3, by omega⟩
-  rw [show n' + 3 = (n' + 2) + 1 from by omega, eval_obj_eq]
-  rw [evalPairsAux_pure_cons (v := Val.str "now")
-      (by rw [show n' + 2 = (n' + 1) + 1 from by omega, eval_strLit_eq])]
-  rw [evalPairsAux_nil]
-  rfl
-
 theorem lookupProject_ws_isolation
     (fuel : Nat)
     (auth : Val)
@@ -148,7 +104,7 @@ theorem lookupProject_ws_isolation
     (h_store_projectId : store "projectId" = none)
     (h_req_0 : match Option.bind (some auth) (fun __v => Val.field' __v "workspaceId"), some (Val.str "ws_") with | some __lhs, some __rhs => Val.startsWith' __lhs __rhs = true | _, _ => False)
     (h_fuel : fuel ≥ 5)
-    : ∀ c ∈ callsTo (eval fuel env store lookupProject_body).trace "db.*",
+    : ∀ c ∈ callsTo (eval fuel env store lookupProject_body).trace ["db", "*"],
       argAt c ["where", "workspaceId"] = Option.bind (some auth) (fun __v => Val.field' __v "workspaceId") := by
   rw [eval_fuel_mono 5 lookupProject_body (by decide) fuel h_fuel]
   -- Extract auth structure from @requires
@@ -160,19 +116,20 @@ theorem lookupProject_ws_isolation
   simp only [lookupProject_body] at hc
   have h_l_pid : lookup env store "projectId" = some projectId := by
     rw [lookup_none h_store_projectId, h_env_projectId]
-  rw [show (5:Nat) = 4+1 from rfl, eval_call_eq] at hc
-  rw [evalPairsAux_pure_cons
-      (eval_findUnique_arg 4 env store fields projectId (Val.str s)
-        h_env_auth h_store_auth h_fl h_l_pid (by omega)),
-      evalPairsAux_nil] at hc
+  have h_arg4 : eval 4 env store
+      (.obj [("id", .var "projectId"), ("workspaceId", .field (.var "auth") "workspaceId")]) =
+      mkResult (.ok (Val.obj [("id", projectId), ("workspaceId", Val.str s)])) store [] := by
+    eval_step [h_l_pid, lookup_none h_store_auth, h_env_auth, h_fl]
+  rw [eval_call_eq] at hc
+  rw [evalPairsAux_pure_cons h_arg4, evalPairsAux_nil] at hc
   simp only [mkResult_outcome, mkResult_store, mkResult_trace,
              List.nil_append, List.append_nil] at hc
-  -- hc: c ∈ callsTo ([.call cr] ++ ret_trace) "db.*"
+  -- hc: c ∈ callsTo ([.call cr] ++ ret_trace) ["db", "*"]
   rw [callsTo_append] at hc
   rw [List.mem_append] at hc
   cases hc with
   | inl h1 =>
-    have hp : matchesPattern "db.project.findUnique" "db.*" = true := by native_decide
+    have hp : matchesPattern ["db", "project", "findUnique"] ["db", "*"] = true := by decide
     have := mem_callsTo_singleton hp h1; subst this
     simp
   | inr h2 =>
@@ -189,7 +146,7 @@ theorem lookupProject_ws_isolation_canonical
     (projectId : Val)
     (h_req_0 : match Option.bind (some auth) (fun __v => Val.field' __v "workspaceId"), some (Val.str "ws_") with | some __lhs, some __rhs => Val.startsWith' __lhs __rhs = true | _, _ => False)
     (h_fuel : fuel ≥ 5)
-    : ∀ c ∈ callsTo (eval fuel ((emptyEnv.set "auth" auth).set "projectId" projectId) emptyStore lookupProject_body).trace "db.*",
+    : ∀ c ∈ callsTo (eval fuel ((emptyEnv.set "auth" auth).set "projectId" projectId) emptyStore lookupProject_body).trace ["db", "*"],
       argAt c ["where", "workspaceId"] = Option.bind (some auth) (fun __v => Val.field' __v "workspaceId") := by
   intro c hc
   exact lookupProject_ws_isolation
@@ -202,7 +159,7 @@ theorem lookupProject_ws_isolation_canonical
     h_req_0 h_fuel c hc
 
 def scopedUpdate_body : Expr :=
-  (.call "db.item.findUnique"
+  (.call ["db", "item", "findUnique"]
     [("where", (.obj [
   ("id", (.var "itemId"))
 ]))]
@@ -214,7 +171,7 @@ def scopedUpdate_body : Expr :=
           (.binOp .eq
             (.var "kind")
             (.strLit "workspace"))
-          (.call "db.item.update"
+          (.call ["db", "item", "update"]
             [("where", (.obj [
   ("id", (.field
   (.var "item")
@@ -227,7 +184,7 @@ def scopedUpdate_body : Expr :=
 ]))]
             "__void_0"
             Expr.none)
-          (.call "db.item.update"
+          (.call ["db", "item", "update"]
             [("where", (.obj [
   ("id", (.field
   (.var "item")
@@ -261,7 +218,7 @@ theorem scopedUpdate_scoped_update
       Option.bind (some auth) (fun __v => Val.field' __v "workspaceId"))
     (h_store_item : store "item" = none)
     (h_fuel : fuel ≥ 9)
-    : ∀ c ∈ callsTo (eval fuel env store scopedUpdate_body).trace "db.item.update",
+    : ∀ c ∈ callsTo (eval fuel env store scopedUpdate_body).trace ["db", "item", "update"],
       argAt c ["where", "workspaceId"] =
         Option.bind (some auth) (fun __v => Val.field' __v "workspaceId") := by
   rw [eval_fuel_mono 9 scopedUpdate_body (by decide) fuel h_fuel]
@@ -285,18 +242,18 @@ theorem scopedUpdate_scoped_update
   intro c hc
   -- Phase 2: Outer call "db.item.findUnique"
   simp only [scopedUpdate_body] at hc
-  rw [show (9:Nat) = 8+1 from rfl, eval_call_eq] at hc
-  rw [evalPairsAux_pure_cons
-      (eval_id_arg 8 env store itemId (by rw [lookup_none h_store_itemId, h_env_itemId])
-        (by omega)),
-      evalPairsAux_nil] at hc
+  have h_id8 : eval 8 env store (.obj [("id", .var "itemId")]) =
+      mkResult (.ok (Val.obj [("id", itemId)])) store [] := by
+    eval_step [lookup_none h_store_itemId, h_env_itemId]
+  rw [eval_call_eq] at hc
+  rw [evalPairsAux_pure_cons h_id8, evalPairsAux_nil] at hc
   simp only [mkResult_outcome, mkResult_store, mkResult_trace,
              List.nil_append, List.append_nil] at hc
   rw [callsTo_append] at hc; rw [List.mem_append] at hc
   cases hc with
   | inl h_outer =>
     exfalso
-    have : matchesPattern "db.item.findUnique" "db.item.update" = false := by native_decide
+    have : matchesPattern ["db", "item", "findUnique"] ["db", "item", "update"] = false := by decide
     simp [callsTo, extractCalls, List.filterMap, List.filter, this] at h_outer
   | inr h_body =>
   -- Phase 3: letConst "item" (var "__ensures_item")
@@ -343,9 +300,11 @@ theorem scopedUpdate_scoped_update
   rw [evalPairsAux_pure_cons
       (eval_update_where_2 4 ((env.set "__call_2" Val.none).set "item" (Val.obj item_fields))
         store item_fields (Val.str s) h_env₂_item h_store_item h_fl_item (by omega))] at h_body
-  rw [evalPairsAux_pure_cons
-      (eval_data_arg 4 ((env.set "__call_2" Val.none).set "item" (Val.obj item_fields))
-        store (by omega))] at h_body
+  have h_data4 : eval 4 ((env.set "__call_2" Val.none).set "item" (Val.obj item_fields)) store
+      (.obj [("updatedAt", .strLit "now")]) =
+      mkResult (.ok (Val.obj [("updatedAt", Val.str "now")])) store [] := by
+    eval_step
+  rw [evalPairsAux_pure_cons h_data4] at h_body
   rw [evalPairsAux_nil] at h_body
   simp only [mkResult_outcome, mkResult_store, mkResult_trace,
              List.nil_append, List.append_nil] at h_body
@@ -353,7 +312,7 @@ theorem scopedUpdate_scoped_update
   rw [callsTo_append] at h_body; rw [List.mem_append] at h_body
   cases h_body with
   | inl h_call =>
-    have hp : matchesPattern "db.item.update" "db.item.update" = true := by native_decide
+    have hp : matchesPattern ["db", "item", "update"] ["db", "item", "update"] = true := by decide
     have := mem_callsTo_singleton hp h_call; subst this
     simp
   | inr h_rest =>

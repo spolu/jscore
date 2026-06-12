@@ -28,14 +28,17 @@ if [ -n "$SORRYS" ]; then
 fi
 echo "ok (only the tracked TaintSoundness sorry remains)"
 
-echo "== 4/5 native_decide audit (trusted library must be kernel-only) =="
-ND=$(grep -rn --include="*.lean" "native_decide" jscore/JSCore || true)
+echo "== 4/5 native_decide audit (kernel-only, repo-wide) =="
+# Single allowlisted use: derived BEq Val is well-founded, so the kernel
+# cannot reduce `Val.str _ == Val.str _` — tracked in RESEARCH.md.
+ND=$(grep -rn --include="*.lean" "native_decide" jscore/JSCore examples \
+  | grep -v 'Val.str "workspace" == Val.str "workspace"' || true)
 if [ -n "$ND" ]; then
-  echo "FAIL: native_decide in the trusted library:"
+  echo "FAIL: unexpected native_decide:"
   echo "$ND"
   exit 1
 fi
-echo "ok (library is native_decide-free; example usage is tracked P1 work)"
+echo "ok (single allowlisted Val == fact remains)"
 
 echo "== 5/5 extractor round-trip =="
 before=$(shasum examples/*_jscore.lean | shasum | cut -d' ' -f1)

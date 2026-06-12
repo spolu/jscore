@@ -6,13 +6,11 @@ import JSCore.Syntax
 
 namespace JSCore
 
--- Pattern matching (duplicated from Trace to avoid circular imports)
-private def matchesPat (target : String) (pattern : String) : Bool :=
-  go (target.splitOn ".") (pattern.splitOn ".")
-where
-  go : List String → List String → Bool
+-- Pattern matching (duplicated from Trace to avoid circular imports).
+-- Targets and patterns are pre-split segment lists.
+private def matchesPat : (target pattern : List String) → Bool
   | _ :: _, ["*"] => true
-  | t :: ts, p :: ps => (p == "*" || t == p) && go ts ps
+  | t :: ts, p :: ps => (p == "*" || t == p) && matchesPat ts ps
   | [], [] => true
   | _, _ => false
 
@@ -61,7 +59,7 @@ end
 -- Accumulator-based: acc starts as [source] and grows as taint propagates.
 -- untaintedCalls: call targets whose results do NOT propagate taint.
 mutual
-  def collectTaintedBindings (untaintedCalls : List String) (acc : List String) : Expr → List String
+  def collectTaintedBindings (untaintedCalls : List (List String)) (acc : List String) : Expr → List String
     | .letConst x e body =>
       let newAcc := if (freeVars e).any (· ∈ acc) then x :: acc else acc
       collectTaintedBindings untaintedCalls newAcc body
@@ -104,7 +102,7 @@ mutual
     | _ => acc
 
   -- Check if any arg expression's freeVars intersect the tainted set
-  def collectTaintedBindingsPairs (untaintedCalls : List String) (acc : List String) :
+  def collectTaintedBindingsPairs (untaintedCalls : List (List String)) (acc : List String) :
       List (String × Expr) → Bool
     | [] => false
     | (_, e) :: rest =>
@@ -112,19 +110,19 @@ mutual
 end
 
 -- Is expression e tainted by binding source?
-def taintedBy (prog : Expr) (source : String) (untaintedCalls : List String) (e : Expr) : Bool :=
+def taintedBy (prog : Expr) (source : String) (untaintedCalls : List (List String)) (e : Expr) : Bool :=
   let taintedSet := collectTaintedBindings untaintedCalls [source] prog
   (freeVars e).any (· ∈ taintedSet)
 
 -- Collected call expressions and their argument expressions for a given pattern
 structure CallExprInfo where
-  target : String
+  target : List String
   namedArgs : List (String × Expr)
   deriving Repr
 
 -- Extract all call sites matching a pattern from an expression
 mutual
-  def callExprsIn : Expr → String → List CallExprInfo
+  def callExprsIn : Expr → List String → List CallExprInfo
     | .call target args _ body, pattern =>
       let rest := callExprsIn body pattern
       let argCalls := callExprsInPairs args pattern
@@ -149,14 +147,14 @@ mutual
     | .unOp _ e, pattern => callExprsIn e pattern
     | _, _ => []
 
-  def callExprsInPairs : List (String × Expr) → String → List CallExprInfo
+  def callExprsInPairs : List (String × Expr) → List String → List CallExprInfo
     | [], _ => []
     | (_, e) :: rest, pattern => callExprsIn e pattern ++ callExprsInPairs rest pattern
 end
 
 -- Control-flow safety: check that no conditional guarding a matching call depends on source
 mutual
-  def controlFlowSafe (source pattern : String) : Expr → Bool
+  def controlFlowSafe (source : String) (pattern : List String) : Expr → Bool
     | .ite cond thn els =>
       let thnHasCalls := !(callExprsIn thn pattern).isEmpty
       let elsHasCalls := !(callExprsIn els pattern).isEmpty
@@ -190,15 +188,15 @@ mutual
     | .unOp _ e => controlFlowSafe source pattern e
     | _ => true
 
-  def controlFlowSafePairs (source pattern : String) : List (String × Expr) → Bool
+  def controlFlowSafePairs (source : String) (pattern : List String) : List (String × Expr) → Bool
     | [] => true
     | (_, e) :: rest =>
       controlFlowSafe source pattern e && controlFlowSafePairs source pattern rest
 end
 
 -- No call matching pattern has any argument that depends on source
-def notTaintedIn (prog : Expr) (source pattern : String)
-    (untaintedCalls : List String := []) : Bool :=
+def notTaintedIn (prog : Expr) (source : String) (pattern : List String)
+    (untaintedCalls : List (List String) := []) : Bool :=
   let taintedSet := collectTaintedBindings untaintedCalls [source] prog
   let calls := callExprsIn prog pattern
   let argsIndependent := calls.all fun ci =>

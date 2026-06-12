@@ -12,11 +12,11 @@ import JSCore.Metatheory.ArgAt
 open JSCore
 
 def taintSafeLiteral_body : Expr :=
-  (.call "logger.info"
+  (.call ["logger", "info"]
     [("arg0", (.strLit "static log line"))]
     "__void_0"
     Expr.none)
 
 theorem taintSafeLiteral_no_secret_leak
-    : notTaintedIn taintSafeLiteral_body "secret" "logger.*" = true := by
-  native_decide
+    : notTaintedIn taintSafeLiteral_body "secret" ["logger", "*"] = true := by
+  decide

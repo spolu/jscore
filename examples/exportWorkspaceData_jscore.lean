@@ -14,14 +14,14 @@ import JSCore.Metatheory.TraceComposition
 open JSCore
 
 def exportWorkspaceData_body : Expr :=
-  (.call "db.projects.findMany"
+  (.call ["db", "projects", "findMany"]
     [("where", (.obj [
   ("workspaceId", (.field
   (.var "auth")
   "workspaceId"))
 ]))]
     "projects"
-    (.call "db.tasks.findMany"
+    (.call ["db", "tasks", "findMany"]
       [("where", (.obj [
   ("workspaceId", (.field
   (.var "auth")
@@ -61,27 +61,11 @@ private theorem auth_ws_string (auth : Val)
     | obj fs => simp [Val.startsWith'] at h
     | arr es => simp [Val.startsWith'] at h
 
--- Helper: evaluate arg obj [("workspaceId", .field (.var "auth") "workspaceId")]
-
-private theorem eval_arg_obj (n : Nat) (env : Env) (store : Store)
-    (fields : List (String × Val)) (wsVal : Val)
-    (h_env : env "auth" = some (Val.obj fields))
-    (h_store : store "auth" = none)
-    (h_fl : fieldLookup fields "workspaceId" = some wsVal)
-    (hn : n ≥ 4) :
-    eval n env store (.obj [("workspaceId", .field (.var "auth") "workspaceId")]) =
-    mkResult (.ok (Val.obj [("workspaceId", wsVal)])) store [] := by
-  obtain ⟨n', rfl⟩ : ∃ n', n = n' + 4 := ⟨n - 4, by omega⟩
-  rw [show n' + 4 = (n' + 3) + 1 from by omega, eval_obj_eq]
-  rw [evalPairsAux_pure_cons (eval_field_var h_env h_store h_fl (by omega))]
-  rw [evalPairsAux_nil]
-  rfl
-
 -- Helper: ret of obj of vars has no db.* calls in trace
 
 private theorem ret_obj_vars_no_calls (env : Env) (store : Store) :
     callsTo (eval 4 env store
-      (.ret (.obj [("projects", .var "projects"), ("tasks", .var "tasks")]))).trace "db.*" = [] := by
+      (.ret (.obj [("projects", .var "projects"), ("tasks", .var "tasks")]))).trace ["db", "*"] = [] := by
   have h_t : (eval 4 env store
       (.ret (.obj [("projects", .var "projects"), ("tasks", .var "tasks")]))).trace = [] := by
     rw [show (4:Nat) = 3+1 from rfl, eval_ret_trace]
@@ -118,7 +102,7 @@ theorem exportWorkspaceData_ws_isolation
     (h_store_format : store "format" = none)
     (h_req_0 : match Option.bind (some auth) (fun __v => Val.field' __v "workspaceId"), some (Val.str "ws_") with | some __lhs, some __rhs => Val.startsWith' __lhs __rhs = true | _, _ => False)
     (h_fuel : fuel ≥ 6)
-    : ∀ c ∈ callsTo (eval fuel env store exportWorkspaceData_body).trace "db.*",
+    : ∀ c ∈ callsTo (eval fuel env store exportWorkspaceData_body).trace ["db", "*"],
       argAt c ["where", "workspaceId"] = Option.bind (some auth) (fun __v => Val.field' __v "workspaceId") := by
   rw [eval_fuel_mono 6 exportWorkspaceData_body (by decide) fuel h_fuel]
   obtain ⟨fields, s, h_auth_eq, h_fl⟩ := auth_ws_string auth h_req_0
@@ -127,10 +111,11 @@ theorem exportWorkspaceData_ws_isolation
   intro c hc
   -- Step through outer call
   simp only [exportWorkspaceData_body] at hc
-  rw [show (6:Nat) = 5+1 from rfl, eval_call_eq] at hc
-  rw [evalPairsAux_pure_cons
-      (eval_arg_obj 5 env store fields (Val.str s) h_env_auth h_store_auth h_fl (by omega)),
-      evalPairsAux_nil] at hc
+  have h_arg5 : eval 5 env store (.obj [("workspaceId", .field (.var "auth") "workspaceId")]) =
+      mkResult (.ok (Val.obj [("workspaceId", Val.str s)])) store [] := by
+    eval_step [lookup_none h_store_auth, h_env_auth, h_fl]
+  rw [eval_call_eq] at hc
+  rw [evalPairsAux_pure_cons h_arg5, evalPairsAux_nil] at hc
   simp only [mkResult_outcome, mkResult_store, mkResult_trace,
              List.nil_append, List.append_nil] at hc
   -- Split: [.call cr1] ++ inner_trace
@@ -138,17 +123,18 @@ theorem exportWorkspaceData_ws_isolation
   rw [List.mem_append] at hc
   cases hc with
   | inl h1 =>
-    have hp : matchesPattern "db.projects.findMany" "db.*" = true := by native_decide
+    have hp : matchesPattern ["db", "projects", "findMany"] ["db", "*"] = true := by decide
     have := mem_callsTo_singleton hp h1; subst this
     simp
   | inr h2 =>
     have h_env_auth2 : (env.set "projects" Val.none) "auth" = some (Val.obj fields) := by
       simp [Env.set, show ("auth" : String) ≠ "projects" from by decide, h_env_auth]
-    rw [show (5:Nat) = 4+1 from rfl, eval_call_eq] at h2
-    rw [evalPairsAux_pure_cons
-        (eval_arg_obj 4 (env.set "projects" Val.none) store fields (Val.str s)
-          h_env_auth2 h_store_auth h_fl (by omega)),
-        evalPairsAux_nil] at h2
+    have h_arg4 : eval 4 (env.set "projects" Val.none) store
+        (.obj [("workspaceId", .field (.var "auth") "workspaceId")]) =
+        mkResult (.ok (Val.obj [("workspaceId", Val.str s)])) store [] := by
+      eval_step [lookup_none h_store_auth, h_env_auth2, h_fl]
+    rw [eval_call_eq] at h2
+    rw [evalPairsAux_pure_cons h_arg4, evalPairsAux_nil] at h2
     simp only [mkResult_outcome, mkResult_store, mkResult_trace,
                List.nil_append, List.append_nil] at h2
     -- Split: [.call cr2] ++ ret_trace
@@ -156,7 +142,7 @@ theorem exportWorkspaceData_ws_isolation
     rw [List.mem_append] at h2
     cases h2 with
     | inl h2a =>
-      have hp : matchesPattern "db.tasks.findMany" "db.*" = true := by native_decide
+      have hp : matchesPattern ["db", "tasks", "findMany"] ["db", "*"] = true := by decide
       have := mem_callsTo_singleton hp h2a; subst this
       simp
     | inr h2b =>
@@ -172,7 +158,7 @@ theorem exportWorkspaceData_ws_isolation_canonical
     (format : Val)
     (h_req_0 : match Option.bind (some auth) (fun __v => Val.field' __v "workspaceId"), some (Val.str "ws_") with | some __lhs, some __rhs => Val.startsWith' __lhs __rhs = true | _, _ => False)
     (h_fuel : fuel ≥ 6)
-    : ∀ c ∈ callsTo (eval fuel ((emptyEnv.set "auth" auth).set "format" format) emptyStore exportWorkspaceData_body).trace "db.*",
+    : ∀ c ∈ callsTo (eval fuel ((emptyEnv.set "auth" auth).set "format" format) emptyStore exportWorkspaceData_body).trace ["db", "*"],
       argAt c ["where", "workspaceId"] = Option.bind (some auth) (fun __v => Val.field' __v "workspaceId") := by
   intro c hc
   exact exportWorkspaceData_ws_isolation
@@ -185,13 +171,13 @@ theorem exportWorkspaceData_ws_isolation_canonical
     h_req_0 h_fuel c hc
 
 theorem exportWorkspaceData_read_only
-    : (callExprsIn exportWorkspaceData_body "db.*.update").length = 0 := by
-  native_decide
+    : (callExprsIn exportWorkspaceData_body ["db", "*", "update"]).length = 0 := by
+  decide
 
 theorem exportWorkspaceData_read_only_1
-    : (callExprsIn exportWorkspaceData_body "db.*.create").length = 0 := by
-  native_decide
+    : (callExprsIn exportWorkspaceData_body ["db", "*", "create"]).length = 0 := by
+  decide
 
 theorem exportWorkspaceData_read_only_2
-    : (callExprsIn exportWorkspaceData_body "db.*.delete").length = 0 := by
-  native_decide
+    : (callExprsIn exportWorkspaceData_body ["db", "*", "delete"]).length = 0 := by
+  decide

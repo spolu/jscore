@@ -166,7 +166,7 @@ theorem eval_forOf_eq {n : Nat} {env : Env} {store : Store}
      | _ => ra) := rfl
 
 theorem eval_call_eq {n : Nat} {env : Env} {store : Store}
-    {target : String} {argExprs : List (String × Expr)}
+    {target : List String} {argExprs : List (String × Expr)}
     {resultBinder : String} {body : Expr} :
     eval (n + 1) env store (Expr.call target argExprs resultBinder body) =
     (let pr := evalPairsAux (eval n env) argExprs store [] []

@@ -2,8 +2,8 @@
  * Lean Theorem Generator — Annotations → theorem statements.
  *
  * Three invariant shapes:
- *   1. ¬ tainted X in call P  → notTaintedIn body "X" "P" = true       (native_decide)
- *   2. ¬ ∃ call P             → (callExprsIn body "P").length = 0       (native_decide)
+ *   1. ¬ tainted X in call P  → notTaintedIn body "X" [segs] = true    (kernel decide)
+ *   2. ¬ ∃ call P             → (callExprsIn body [segs]).length = 0    (kernel decide)
  *   3. ∀ call P (c) => pred   → runtime trace property                  (sorry)
  */
 
@@ -80,7 +80,7 @@ export function generateTheorem(
     return [
       `theorem ${thmName}`,
       `    : ${translation.conclusion} := by`,
-      `  native_decide`,
+      `  decide`,
     ].join("\n");
   }
 
@@ -148,6 +148,10 @@ export function generateTheorem(
  * Translate an invariant proposition to a Lean conclusion.
  * Returns the conclusion string and whether it needs runtime (eval) reasoning.
  */
+function patternSegs(pattern: string): string {
+  return `[${pattern.split(".").map((s) => `"${escapeLeanString(s)}"`).join(", ")}]`;
+}
+
 function translateInvariantToLean(
   prop: string,
   functionName: string,
@@ -163,11 +167,11 @@ function translateInvariantToLean(
   if (taintMatch) {
     const [, source, pattern] = taintMatch;
     const ucList = untaintedCalls && untaintedCalls.length > 0
-      ? ` [${untaintedCalls.map(c => `"${c}"`).join(", ")}]`
+      ? ` [${untaintedCalls.map(patternSegs).join(", ")}]`
       : "";
     return {
       kind: "syntactic",
-      conclusion: `notTaintedIn ${functionName}_body "${source}" "${pattern}"${ucList} = true`,
+      conclusion: `notTaintedIn ${functionName}_body "${source}" ${patternSegs(pattern)}${ucList} = true`,
     };
   }
 
@@ -178,11 +182,11 @@ function translateInvariantToLean(
   if (positiveTaintMatch) {
     const [, source, pattern] = positiveTaintMatch;
     const ucList = untaintedCalls && untaintedCalls.length > 0
-      ? ` [${untaintedCalls.map(c => `"${c}"`).join(", ")}]`
+      ? ` [${untaintedCalls.map(patternSegs).join(", ")}]`
       : "";
     return {
       kind: "syntactic",
-      conclusion: `notTaintedIn ${functionName}_body "${source}" "${pattern}"${ucList} = false`,
+      conclusion: `notTaintedIn ${functionName}_body "${source}" ${patternSegs(pattern)}${ucList} = false`,
     };
   }
 
@@ -192,7 +196,7 @@ function translateInvariantToLean(
     const [, pattern] = noCallMatch;
     return {
       kind: "syntactic",
-      conclusion: `(callExprsIn ${functionName}_body "${pattern}").length = 0`,
+      conclusion: `(callExprsIn ${functionName}_body ${patternSegs(pattern)}).length = 0`,
     };
   }
 
@@ -325,7 +329,7 @@ function buildRuntimeConclusion(
   envExpr: string,
   storeExpr: string
 ): string {
-  return `∀ ${runtimeInvariant.bindVar} ∈ callsTo (eval ${fuelExpr} ${envExpr} ${storeExpr} ${functionName}_body).trace "${runtimeInvariant.pattern}",\n      ${runtimeInvariant.predicate}`;
+  return `∀ ${runtimeInvariant.bindVar} ∈ callsTo (eval ${fuelExpr} ${envExpr} ${storeExpr} ${functionName}_body).trace ${patternSegs(runtimeInvariant.pattern)},\n      ${runtimeInvariant.predicate}`;
 }
 
 interface CanonicalRuntimeTheoremInput {

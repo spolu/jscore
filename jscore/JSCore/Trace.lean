@@ -6,7 +6,7 @@ import JSCore.Values
 namespace JSCore
 
 structure CallRecord where
-  target   : String
+  target   : List String   -- pre-split segments: ["db", "task", "update"]
   args     : List (String × Val)
   resultId : String
   deriving Repr, BEq, DecidableEq
@@ -35,20 +35,18 @@ def extractCalls (trace : List TraceEntry) : List CallRecord :=
     | .call cr => some cr
     | .scopeEnd _ => Option.none
 
--- Does target match pattern? Segments are split on ".".
--- "*" matches any single segment; trailing "*" matches 1+ remaining segments.
--- Examples: "db.projects.findMany" matches "db.*" and "db.*.findMany" but not "db.*.update"
-def matchesPattern (target : String) (pattern : String) : Bool :=
-  go (target.splitOn ".") (pattern.splitOn ".")
-where
-  go : List String → List String → Bool
+-- Does target match pattern? Both are pre-split segment lists.
+-- "*" matches any single segment; a trailing "*" matches 1+ remaining segments.
+-- Examples: ["db","projects","findMany"] matches ["db","*"] and
+-- ["db","*","findMany"] but not ["db","*","update"].
+def matchesPattern : (target pattern : List String) → Bool
   | _ :: _, ["*"] => true
-  | t :: ts, p :: ps => (p == "*" || t == p) && go ts ps
+  | t :: ts, p :: ps => (p == "*" || t == p) && matchesPattern ts ps
   | [], [] => true
   | _, _ => false
 
 -- All calls whose target matches the pattern
-def callsTo (trace : List TraceEntry) (pattern : String) : List CallRecord :=
+def callsTo (trace : List TraceEntry) (pattern : List String) : List CallRecord :=
   (extractCalls trace).filter (fun c => matchesPattern c.target pattern)
 
 -- Value of a named argument (supports simple top-level lookup)
@@ -84,7 +82,7 @@ def before (trace : List TraceEntry) (c1 c2 : CallRecord) : Prop :=
 
 -- c1 occurs inside the scope of a transaction call c2
 def inside (trace : List TraceEntry) (c1 c2 : CallRecord) : Prop :=
-  matchesPattern c2.target "db.$transaction*" ∧
+  matchesPattern c2.target ["db", "$transaction*"] ∧
   ∃ i j k, trace.get? i = some (.call c2) ∧
     trace.get? j = some (.call c1) ∧
     trace.get? k = some (.scopeEnd c2) ∧

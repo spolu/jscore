@@ -384,12 +384,14 @@ Exit criterion: every theorem that CI reports "proved" means what the annotation
 for all sufficient fuels, with no vacuous hypotheses.
 
 ### Phase 1 — Proof-size reduction (library work)
-1. ◐ **Paths done 2026-06** — `argAt`/`valAt` take `List String`; the extractor
-   emits segments (`argAt c ["where", "projectId"]`); `Metatheory/ArgAt.lean`
-   @[simp] lemmas (fieldLookup hit/miss with `by decide` autoParams) close
-   argAt goals by plain `simp`. All per-example argAtPath/String.splitOn
-   helper lemmas deleted. Remaining: patterns/`matchesPattern` as segments
-   (would kill the remaining example native_decides).
+1. ✅ **DONE 2026-06** — paths AND patterns as `List String`: `argAt c
+   ["where", "projectId"]`, `callsTo trace ["db", "*"]`, `Expr.call` targets
+   and `CallRecord.target` as segments — `String.splitOn` is gone from the
+   entire proof surface. Taint and nonexistence theorems now close with
+   kernel `decide` (extractor emits `decide`); the CI native_decide audit is
+   repo-wide with a single allowlisted `Val ==` fact (derived `BEq Val` is
+   well-founded — kernel can't reduce it; fix by hand-writing a structural
+   `Val.beq`, tracked below).
 2. ◐ **`eval_step` done 2026-06** — `eval_step [facts] (at h)?` in Tactics.lean
    symbolically executes literal-fuel eval terms via one simp call (equation
    lemmas + ArgAt lemmas + supplied lookup facts). Numeral fuels unify with
@@ -397,8 +399,12 @@ for all sufficient fuels, with no vacuous hypotheses.
    chains are unnecessary. reorderTasks converted: 181 → 142 lines, zero
    per-example eval helper lemmas. Remaining: convert
    exportWorkspaceData/scopedUpdate (their helpers are at hypothesis
-   locations — use inline literal-fuel `have`s proved by eval_step);
-   matchesPattern segments; registered simp sets.
+   locations — use inline literal-fuel `have`s proved by eval_step) —
+   **done 2026-06**: all five generic-fuel eval helper lemmas across
+   exportWorkspaceData/scopedUpdate replaced by inline `have` + `eval_step`;
+   only `eval_field_item`/`eval_update_where_2` remain (genuinely symbolic
+   `fieldLookup` case splits). Remaining: registered simp sets; hand-written
+   structural `Val.beq` (kills the last native_decide).
 3. SSA experiment: extractor pass eliminating `letMut` for non-loop-carried
    reassignment; measure hypothesis/statement shrinkage (§5.4).
 4. Re-prove all examples; **metric: proof LOC per invariant**, target ≥3× reduction

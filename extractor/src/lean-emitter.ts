@@ -140,13 +140,18 @@ export function emitLean(expr: JsCoreExpr, indent: number = 0): string {
         emitLean(expr.value, indent + 1) + ")",
       ].join("\n");
 
-    case "call":
+    case "call": {
+      const targetSegs = `[${expr.target
+        .split(".")
+        .map((t) => `"${escapeLeanString(t)}"`)
+        .join(", ")}]`;
       return [
-        `${pad}(.call "${expr.target}"`,
+        `${pad}(.call ${targetSegs}`,
         `${pad}  [${expr.args.map(([k, v]) => `("${k}", ${emitLean(v, 0).trim()})`).join(", ")}]`,
         `${pad}  "${expr.resultBinder}"`,
         emitLean(expr.body, indent + 1) + ")",
       ].join("\n");
+    }
 
     case "throw":
       return [

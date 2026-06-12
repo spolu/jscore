@@ -34,12 +34,12 @@ theorem letConst_trace (fuel : Nat) (env : Env) (store : Store) (x : String) (e 
   | .returned _ => simp [mkResult, Result.trace]
 
 -- Calls-to preserves over trace concatenation
-theorem callsTo_append (t1 t2 : List TraceEntry) (pattern : String) :
+theorem callsTo_append (t1 t2 : List TraceEntry) (pattern : List String) :
     callsTo (t1 ++ t2) pattern = callsTo t1 pattern ++ callsTo t2 pattern := by
   simp [callsTo, extractCalls, List.filterMap_append, List.filter_append]
 
 -- If P holds for all calls in t1 and t2, it holds for all calls in t1 ++ t2
-theorem forall_calls_append (t1 t2 : List TraceEntry) (pattern : String)
+theorem forall_calls_append (t1 t2 : List TraceEntry) (pattern : List String)
     (P : CallRecord → Prop)
     (h1 : ∀ c ∈ callsTo t1 pattern, P c)
     (h2 : ∀ c ∈ callsTo t2 pattern, P c) :
@@ -70,17 +70,17 @@ theorem forall_extractCalls_append (t1 t2 : List TraceEntry)
   | inr h => exact h2 c h
 
 -- callsTo on empty trace is empty
-theorem callsTo_nil (pattern : String) :
+theorem callsTo_nil (pattern : List String) :
     callsTo [] pattern = [] := rfl
 
 -- callsTo on a single matching .call entry is a singleton
-theorem callsTo_singleton_call {cr : CallRecord} {pattern : String}
+theorem callsTo_singleton_call {cr : CallRecord} {pattern : List String}
     (h : matchesPattern cr.target pattern = true) :
     callsTo [TraceEntry.call cr] pattern = [cr] := by
   simp [callsTo, extractCalls, List.filterMap, List.filter, h]
 
 -- c ∈ callsTo [.call cr] pattern implies c = cr (when pattern matches)
-theorem mem_callsTo_singleton {cr : CallRecord} {pattern : String} {c : CallRecord}
+theorem mem_callsTo_singleton {cr : CallRecord} {pattern : List String} {c : CallRecord}
     (h_pat : matchesPattern cr.target pattern = true)
     (h_mem : c ∈ callsTo [TraceEntry.call cr] pattern) :
     c = cr := by
@@ -90,7 +90,7 @@ theorem mem_callsTo_singleton {cr : CallRecord} {pattern : String} {c : CallReco
 
 -- Membership characterization: c is a matching call iff its .call entry is in
 -- the trace and its target matches the pattern.
-theorem mem_callsTo {t : List TraceEntry} {pattern : String} {c : CallRecord} :
+theorem mem_callsTo {t : List TraceEntry} {pattern : List String} {c : CallRecord} :
     c ∈ callsTo t pattern ↔
     (TraceEntry.call c ∈ t ∧ matchesPattern c.target pattern = true) := by
   constructor
