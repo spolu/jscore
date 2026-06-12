@@ -4,7 +4,7 @@ This file provides guidance to AI agents (Claude Code, Codex, etc.) when working
 
 ## Project Overview
 
-JSCore₀ is a verification system: annotated TypeScript → Lean 4 proofs. Agents write code and proofs, humans review annotations (`@requires`, `@invariant`, `@ensures`), Lean kernel checks everything. See [PROPOSAL.md](PROPOSAL.md) for the full system design, motivation, and annotation semantics.
+JSCore₀ is a verification system: annotated TypeScript → Lean 4 proofs. Agents write code and proofs, humans review annotations (`@requires`, `@invariant`, `@ensures`), Lean kernel checks everything. See [PROPOSAL.md](PROPOSAL.md) for the full system design, motivation, and annotation semantics. See [RESEARCH.md](RESEARCH.md) for the current research plan, known soundness gaps, and the design review against Verus/Aeneas.
 
 **Pipeline:** Annotated TS → extractor (ts-morph) → Lean AST + theorem statements → `lake build`
 
@@ -40,7 +40,7 @@ Modules imported in dependency order by `jscore/JSCore.lean`:
 - **Syntax** — `Expr` inductive (26 constructors). `call` is CPS-style: `call target args resultBinder body`. `whileLoop` carries its own fuel.
 - **Values** — `Val` (str/num/bool/none/obj/arr). `Env` and `Store` are both `String → Option Val` (function types, not maps). `Env` = immutable (letConst), `Store` = mutable (letMut/assign). `lookup` checks Store then Env.
 - **Trace** — `CallRecord`, `TraceEntry`, `Outcome`, `Result`. Pattern matching with `*` wildcards. `callsTo`, `before`/`inside` ordering predicates, `argAtPath` for dotted-path lookup into call args.
-- **Eval** — `eval` uses global `fuel : Nat` with structural recursion. `List.foldl` used inline for obj/arr/call args/forOf to avoid mutual recursion. `evalWhileAux` is top-level (not local def) taking closures. `evalForOf` is separate top-level with explicit recursion on element list.
+- **Eval** — `eval` uses global `fuel : Nat` with structural recursion. List-shaped sub-evaluations go through top-level closure-taking helpers (`evalPairsAux` for obj/spread/call args, `evalElemsAux` for arr, `evalForOfAux` for forOf, `evalWhileAux` for while) — all SHORT-CIRCUIT on the first non-ok outcome, and a call whose argument fails is NOT recorded in the trace. `evalForOf` is a thin wrapper over `evalForOfAux`; eval's forOf case computes it definitionally (no foldl/recursion mismatch). `break` stops forOf. Semantics regression tests: `JSCore/Tests.lean` (`#guard`).
 - **StringPredicates** — `Val.startsWith'`, `Val.mem'`, `Val.contains'` as Bool functions.
 - **Properties** — `sumOver`, `indexOf`, `allCallsSatisfy`, `noCallsExist`.
 - **Taint** — Purely syntactic analysis: `freeVars`, `collectTaintedBindings`, `taintedBy`, `notTaintedIn`, `callExprsIn`. `notTaintedIn` currently includes a conservative control-flow independence check (`source ∉ freeVars prog`), so it may produce false positives (reject path-safe programs) but should not miss real leaks. Three sets of mutual-recursive helpers for nested inductive traversal.
@@ -80,15 +80,26 @@ Lean outputs are generated under `examples/`, collocated with their `.ts` source
 
 ## Known Sorrys
 
-- `JSCore/Metatheory/TaintSoundness.lean` sorrys are resolved (`eval_independent_of_source` and `taint_soundness` are proved).
-- All extracted runtime theorem proofs in `examples/` (intentional — agents fill these in)
+- `JSCore/Metatheory/TaintSoundness.lean` — `taint_soundness` is **UNPROVED** (`sorry`). This is the noninterference theorem justifying the syntactic taint analysis; proving it is Phase 2 of RESEARCH.md. (There is no `eval_independent_of_source` lemma — earlier docs claiming both were proved were wrong.)
+- Freshly extracted runtime theorems in `examples/` start as `sorry` (intentional — agents fill these in). All current example proofs are complete and `lake build` is green in both `jscore/` and `examples/`.
+
+## Known Soundness Gaps (see RESEARCH.md §2 for details)
+
+- ~~`eval` foldls swallow errors~~ — **FIXED 2026-06**: obj/arr/spread/call-args short-circuit on errors, calls with failing args are not recorded, `break` stops forOf. Pinned by `JSCore/Tests.lean`.
+- ~~Unparseable annotations silently translate to `True`~~ — **FIXED 2026-06**: translation is fail-closed (`AnnotationTranslationError`); extraction fails with a non-zero exit and no `.lean` output.
+- ~~`push` breaks Env/Store disjointness~~ — **FIXED 2026-06**: pushed arrays extract as `letMut` even when `const`; eval's `push` is Store-only and errors on Env-bound names.
+- Annotations are not type-checked against TS types; ill-typed `@requires` yields unsatisfiable hypotheses making all runtime theorems vacuous (the known instance in `reorderTasks.ts` is fixed; the systematic check is open).
+- Runtime theorems are pinned to one fuel value (`h_fuel : fuel = N`); no fuel-monotonicity lemma exists.
+- `TraceEntry.scopeEnd` is never emitted by `eval` or the extractor, so `inside`/transaction invariants are unprovable.
+
+CI gate: `scripts/ci.sh` — builds both projects, audits sorry/native_decide, checks extractor round-trip idempotence. Run it before considering any change done.
 
 ## Proof Strategy for Runtime Theorems
 
 Key tactics and lemmas for closing `sorry` in extracted files:
 - `trace_simp` — fully concrete cases
-- `forOf_invariant` / `forOf_invariant'` — loop invariants (work on `evalForOf`, NOT on eval's inline foldl)
-- `forOfFold_callsTo` — callsTo invariant for forOf via eval's inline foldl (see below)
+- `forOf_invariant` / `forOf_invariant'` — loop invariants on `evalForOf` (which eval's forOf case computes definitionally)
+- `forOf_callsTo` — callsTo invariant for forOf loops (see below)
 - `ite_covers` — if/then/else coverage
 - `forall_calls_append` / `callsTo_append` / `callsTo_nil` — trace composition
 - `callsTo_singleton_call` / `mem_callsTo_singleton` — singleton call trace reasoning
@@ -100,7 +111,9 @@ Key tactics and lemmas for closing `sorry` in extracted files:
 
 Single-step unfolding lemmas for each `Expr` constructor, all proved by `rfl`. These avoid recursive unfolding (which causes timeouts). Use with `rw` to step through eval one constructor at a time.
 
-Available: `eval_var_eq`, `eval_strLit_eq`, `eval_numLit_eq`, `eval_boolLit_eq`, `eval_none_eq`, `eval_seq_eq`, `eval_letConst_eq`, `eval_letMut_eq`, `eval_assign_eq`, `eval_ite_eq`, `eval_forOf_eq`, `eval_call_eq`, `eval_ret_eq`, `eval_field_eq`, `eval_obj_eq`, `eval_break_eq`, `eval_throw_eq`, `eval_tryCatch_eq`.
+Available: `eval_var_eq`, `eval_strLit_eq`, `eval_numLit_eq`, `eval_boolLit_eq`, `eval_none_eq`, `eval_seq_eq`, `eval_letConst_eq`, `eval_letMut_eq`, `eval_assign_eq`, `eval_ite_eq`, `eval_forOf_eq` (RHS uses `evalForOf`), `eval_call_eq`, `eval_ret_eq`, `eval_field_eq`, `eval_obj_eq`, `eval_arr_eq`, `eval_spread_eq`, `eval_binOp_eq`, `eval_break_eq`, `eval_throw_eq`, `eval_tryCatch_eq`.
+
+Helper equation lemmas: `evalPairsAux_nil`/`evalPairsAux_cons`, `evalElemsAux_nil`/`evalElemsAux_cons`, `evalForOfAux_nil`/`evalForOfAux_cons`. **`evalPairsAux_pure_cons` / `evalElemsAux_pure_cons`** step over a sub-expression that evaluates to `mkResult (.ok v) store []` — the workhorse for argument/field evaluation: `rw [evalPairsAux_pure_cons (h_sub_eval), evalPairsAux_nil]` then `rfl` or projection simp. Provide `(v := ...)` explicitly when the proof is a `by`-block (delayed unification).
 
 Field access: `mkResult_outcome`/`mkResult_store`/`mkResult_trace`. Lookup: `lookup_none`/`lookup_some`.
 
@@ -111,17 +124,15 @@ Derived properties:
 - `eval_ret_trace` — `ret e` preserves inner trace
 - `eval_field_var` — `.field (.var x) fname` evaluates to `mkResult (.ok v) store []` when `x` is bound to `Val.obj fields` in env (not store) and `fieldLookup fields fname = some v`; requires fuel ≥ 2
 
-### ForOf CallsTo Infrastructure (`Metatheory/ForOfCallsTo.lean`)
+### ForOf Loop Lemmas (`Metatheory/LoopInvariant.lean`, `Metatheory/ForOfCallsTo.lean`)
 
-**Critical insight:** eval's forOf uses inline `List.foldl` (to avoid mutual recursion), while `evalForOf` uses explicit recursion. They differ on **break semantics**: foldl continues after break (converting to `.ok .none`), evalForOf stops. This means `forOf_invariant` (from LoopInvariant.lean) cannot be applied directly to eval output.
+Since the 2026-06 eval fix, eval's forOf case computes `evalForOf` **definitionally** (both delegate to `evalForOfAux`), so loop lemmas apply directly to eval output — no foldl bridge needed.
 
-This module bridges the gap:
-- `forOfFoldStep` — named version of eval's inline forOf lambda
-- `eval_forOf_foldl_step` — proves the inline lambda equals `forOfFoldStep` (by `rfl`)
-- `forOfFoldStep_ok` / `forOfFoldStep_not_ok` — case-split helpers
-- `foldl_forOfFoldStep_not_ok` — foldl is identity when acc outcome is not ok
-- **`forOfFold_callsTo`** — main invariant: given a store invariant `I` and a per-step property `P` on call records, proves all callsTo in the foldl result satisfy `P` and `I` is preserved
-- `eval_forOf_non_arr_trace` — non-array case: forOf trace equals array expr trace
+- `evalForOfAux_invariant` (LoopInvariant) — generic: store invariant `I` + per-iteration trace-entry property `P` propagate through the loop for any body closure
+- `forOf_invariant` / `forOf_invariant'` (LoopInvariant) — eval-specific corollaries over `evalForOf`
+- **`forOf_callsTo`** (ForOfCallsTo) — main workhorse: store invariant `I` + per-call property `P` over `callsTo … pattern`; apply after `rw [eval_forOf_eq]` exposes `evalForOf` in the goal
+- `eval_forOf_non_arr_trace` (ForOfCallsTo) — non-array case: forOf trace equals array expr trace
+- `mem_callsTo` (TraceComposition) — `c ∈ callsTo t p ↔ .call c ∈ t ∧ matchesPattern c.target p`
 
 ### Trace Composition (`Metatheory/TraceComposition.lean`)
 
@@ -138,17 +149,17 @@ This module bridges the gap:
 Many extracted bodies have the form `seq (forOf x arr body) Expr.none`. The recommended proof pattern:
 
 1. **Strip the seq wrapper:** `rw [show (n:Nat) = m+1 from rfl, eval_seq_none_trace]` — reduces to just the forOf eval's trace
-2. **Unfold forOf:** `rw [eval_forOf_eq]` then `rw [eval_var_eq]` + `rw [h_lookup]` to resolve the array
-3. **Simplify:** `simp only [mkResult_outcome, mkResult_store, mkResult_trace, List.nil_append, List.append_nil]`
-4. **Close with `rfl`:** The inline foldl lambda from `eval_forOf_eq` is definitionally equal to `forOfFoldStep`, so if the conclusion uses `forOfFoldStep`, `rfl` closes the goal
+2. **Unfold forOf:** `rw [eval_forOf_eq]` then `rw [eval_var_eq]` + `rw [h_lookup]` to resolve the array; projection simp reduces the goal to a statement about `evalForOf`
+3. **Apply `forOf_callsTo`** with the store invariant (typically `fun s => s = store`) and the per-iteration lemma
+4. Per-iteration lemmas evaluate the loop body via `eval_call_eq` + `evalPairsAux_pure_cons` chains ending in `rfl`
 
-This avoids the `generalize` pitfall (see below) and lets you use imported equation lemmas from EvalEq.lean.
+See `examples/reorderTasks_jscore.lean` for the full pattern.
 
 ### Proof Pitfall: `generalize` with imported vs local equation lemmas
 
 `generalize expr = x` requires **syntactic** match — it only replaces occurrences that are syntactically identical, not merely definitionally equal. When using imported equation lemmas (e.g., `eval_forOf_eq` from EvalEq.lean), the elaborated lambda terms may differ subtly from those in your theorem statement. `simp` can further change the form via zeta reduction (let-inlining).
 
-**Avoid `generalize` on foldl expressions.** Instead:
+**Avoid `generalize` on large eval expressions.** Instead:
 - Use `eval_seq_none_trace` to strip `seq _ Expr.none` wrappers
-- State conclusions using `forOfFoldStep` and close with `rfl` (definitional equality)
+- State conclusions using the named helpers (`evalForOf`, `evalPairsAux`) and close with `rfl` (definitional equality)
 - Use `have : T := expr` to bridge between definitionally-equal forms when needed

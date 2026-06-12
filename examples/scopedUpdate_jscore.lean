@@ -47,12 +47,10 @@ private theorem eval_findUnique_arg (n : Nat) (env : Env) (store : Store)
     mkResult (.ok (Val.obj [("id", idVal), ("workspaceId", wsVal)])) store [] := by
   obtain ⟨n', rfl⟩ : ∃ n', n = n' + 4 := ⟨n - 4, by omega⟩
   rw [show n' + 4 = (n' + 3) + 1 from by omega, eval_obj_eq]
-  simp only [List.foldl]
-  rw [show n' + 3 = (n' + 2) + 1 from by omega, eval_var_eq]
-  rw [h_env_id]
-  simp only [mkResult_outcome, mkResult_store, mkResult_trace, List.nil_append, List.append_nil]
-  rw [eval_field_var h_env_auth h_store_auth h_fl (by omega)]
-  simp only [mkResult_outcome, mkResult_store, mkResult_trace, List.nil_append, List.append_nil]
+  rw [evalPairsAux_pure_cons (v := idVal)
+      (by rw [show n' + 3 = (n' + 2) + 1 from by omega, eval_var_eq, h_env_id])]
+  rw [evalPairsAux_pure_cons (eval_field_var h_env_auth h_store_auth h_fl (by omega))]
+  rw [evalPairsAux_nil]
   rfl
 
 private theorem argAtPath_update_wsId (target resultId : String) (idVal wsVal : Val) :
@@ -75,9 +73,10 @@ private theorem eval_id_arg (n : Nat) (env : Env) (store : Store) (idVal : Val)
     mkResult (.ok (Val.obj [("id", idVal)])) store [] := by
   obtain ⟨n', rfl⟩ : ∃ n', n = n' + 3 := ⟨n - 3, by omega⟩
   rw [show n' + 3 = (n' + 2) + 1 from by omega, eval_obj_eq]
-  simp only [List.foldl]
-  rw [show n' + 2 = (n' + 1) + 1 from by omega, eval_var_eq, h_id]
-  simp only [mkResult_outcome, mkResult_store, mkResult_trace, List.nil_append, List.append_nil]
+  rw [evalPairsAux_pure_cons (v := idVal)
+      (by rw [show n' + 2 = (n' + 1) + 1 from by omega, eval_var_eq, h_id])]
+  rw [evalPairsAux_nil]
+  rfl
 
 -- Helper: field access on item (field may or may not exist)
 
@@ -113,12 +112,10 @@ private theorem eval_update_where_2 (n : Nat) (env : Env) (store : Store)
                             ("workspaceId", wsVal)])) store [] := by
   obtain ⟨n', rfl⟩ : ∃ n', n = n' + 4 := ⟨n - 4, by omega⟩
   rw [show n' + 4 = (n' + 3) + 1 from by omega, eval_obj_eq]
-  simp only [List.foldl]
-  have h1 := eval_field_item (n' + 3) env store item_fields "id" h_env_item h_store_item (by omega)
-  rw [h1]
-  simp only [mkResult_outcome, mkResult_store, mkResult_trace, List.nil_append, List.append_nil]
-  rw [eval_field_var h_env_item h_store_item h_fl_ws (by omega)]
-  simp only [mkResult_outcome, mkResult_store, mkResult_trace, List.nil_append, List.append_nil]
+  rw [evalPairsAux_pure_cons
+      (eval_field_item (n' + 3) env store item_fields "id" h_env_item h_store_item (by omega))]
+  rw [evalPairsAux_pure_cons (eval_field_var h_env_item h_store_item h_fl_ws (by omega))]
+  rw [evalPairsAux_nil]
   rfl
 
 -- Helper: evaluate "data" obj [("updatedAt", strLit "now")]
@@ -128,9 +125,10 @@ private theorem eval_data_arg (n : Nat) (env : Env) (store : Store) (hn : n ≥ 
     mkResult (.ok (Val.obj [("updatedAt", Val.str "now")])) store [] := by
   obtain ⟨n', rfl⟩ : ∃ n', n = n' + 3 := ⟨n - 3, by omega⟩
   rw [show n' + 3 = (n' + 2) + 1 from by omega, eval_obj_eq]
-  simp only [List.foldl]
-  rw [show n' + 2 = (n' + 1) + 1 from by omega, eval_strLit_eq]
-  simp only [mkResult_outcome, mkResult_store, mkResult_trace, List.nil_append, List.append_nil]
+  rw [evalPairsAux_pure_cons (v := Val.str "now")
+      (by rw [show n' + 2 = (n' + 1) + 1 from by omega, eval_strLit_eq])]
+  rw [evalPairsAux_nil]
+  rfl
 
 theorem lookupProject_ws_isolation
     (fuel : Nat)
@@ -164,12 +162,13 @@ theorem lookupProject_ws_isolation
   intro c hc
   -- Step through outer call
   simp only [lookupProject_body] at hc
-  rw [show (5:Nat) = 4+1 from rfl, eval_call_eq] at hc
-  simp only [List.foldl] at hc
   have h_l_pid : lookup env store "projectId" = some projectId := by
     rw [lookup_none h_store_projectId, h_env_projectId]
-  rw [eval_findUnique_arg 4 env store fields projectId (Val.num n)
-      h_env_auth h_store_auth h_fl h_l_pid (by omega)] at hc
+  rw [show (5:Nat) = 4+1 from rfl, eval_call_eq] at hc
+  rw [evalPairsAux_pure_cons
+      (eval_findUnique_arg 4 env store fields projectId (Val.num n)
+        h_env_auth h_store_auth h_fl h_l_pid (by omega)),
+      evalPairsAux_nil] at hc
   simp only [mkResult_outcome, mkResult_store, mkResult_trace,
              List.nil_append, List.append_nil] at hc
   -- hc: c ∈ callsTo ([.call cr] ++ ret_trace) "db.*"
@@ -304,9 +303,10 @@ theorem scopedUpdate_scoped_update
   -- Phase 2: Outer call "db.item.findUnique"
   simp only [scopedUpdate_body] at hc
   rw [show (9:Nat) = 8+1 from rfl, eval_call_eq] at hc
-  simp only [List.foldl] at hc
-  rw [eval_id_arg 8 env store itemId (by rw [lookup_none h_store_itemId, h_env_itemId])
-      (by omega)] at hc
+  rw [evalPairsAux_pure_cons
+      (eval_id_arg 8 env store itemId (by rw [lookup_none h_store_itemId, h_env_itemId])
+        (by omega)),
+      evalPairsAux_nil] at hc
   simp only [mkResult_outcome, mkResult_store, mkResult_trace,
              List.nil_append, List.append_nil] at hc
   rw [callsTo_append] at hc; rw [List.mem_append] at hc
@@ -353,17 +353,17 @@ theorem scopedUpdate_scoped_update
   simp only [mkResult_outcome, mkResult_store, mkResult_trace,
              List.nil_append, List.append_nil] at h_body
   -- Phase 6: True branch — call "db.item.update"
-  rw [show (5:Nat) = 4+1 from rfl, eval_call_eq] at h_body
-  simp only [List.foldl] at h_body
   -- env₂ item lookup
   have h_env₂_item : ((env.set "__call_2" Val.none).set "item" (Val.obj item_fields)) "item" =
       some (Val.obj item_fields) := by simp [Env.set]
-  rw [eval_update_where_2 4 ((env.set "__call_2" Val.none).set "item" (Val.obj item_fields))
-      store item_fields (Val.num n) h_env₂_item h_store_item h_fl_item (by omega)] at h_body
-  simp only [mkResult_outcome, mkResult_store, mkResult_trace,
-             List.nil_append, List.append_nil] at h_body
-  rw [eval_data_arg 4 ((env.set "__call_2" Val.none).set "item" (Val.obj item_fields))
-      store (by omega)] at h_body
+  rw [show (5:Nat) = 4+1 from rfl, eval_call_eq] at h_body
+  rw [evalPairsAux_pure_cons
+      (eval_update_where_2 4 ((env.set "__call_2" Val.none).set "item" (Val.obj item_fields))
+        store item_fields (Val.num n) h_env₂_item h_store_item h_fl_item (by omega))] at h_body
+  rw [evalPairsAux_pure_cons
+      (eval_data_arg 4 ((env.set "__call_2" Val.none).set "item" (Val.obj item_fields))
+        store (by omega))] at h_body
+  rw [evalPairsAux_nil] at h_body
   simp only [mkResult_outcome, mkResult_store, mkResult_trace,
              List.nil_append, List.append_nil] at h_body
   -- Split: [.call update_cr] ++ Expr.none trace

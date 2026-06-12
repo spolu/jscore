@@ -17,7 +17,8 @@ namespace JSCore
 -- trace_simp: unfold eval definitions and simplify
 macro "trace_simp" : tactic =>
   `(tactic| (
-    simp only [eval, evalBinOp, evalUnOp, evalForOf, evalWhileAux,
+    simp only [eval, evalBinOp, evalUnOp, evalForOf, evalForOfAux, evalWhileAux,
+               evalPairsAux, evalElemsAux,
                mkResult, lookup, Env.set, Store.set, fieldLookup, fieldSet,
                emptyEnv, emptyStore, matchesPattern, matchesPattern.go,
                callsTo, extractCalls,

@@ -14,3 +14,4 @@ import JSCore.Metatheory.ConditionalCoverage
 import JSCore.Metatheory.Composition
 import JSCore.Metatheory.TaintSoundness
 import JSCore.Tactics
+import JSCore.Tests

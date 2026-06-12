@@ -88,4 +88,27 @@ theorem mem_callsTo_singleton {cr : CallRecord} {pattern : String} {c : CallReco
   simp [List.mem_cons, List.mem_nil_iff] at h_mem
   exact h_mem
 
+-- Membership characterization: c is a matching call iff its .call entry is in
+-- the trace and its target matches the pattern.
+theorem mem_callsTo {t : List TraceEntry} {pattern : String} {c : CallRecord} :
+    c ∈ callsTo t pattern ↔
+    (TraceEntry.call c ∈ t ∧ matchesPattern c.target pattern = true) := by
+  constructor
+  · intro h
+    rw [callsTo, List.mem_filter] at h
+    obtain ⟨hmem, hpat⟩ := h
+    rw [extractCalls, List.mem_filterMap] at hmem
+    obtain ⟨e, he, hfm⟩ := hmem
+    cases e with
+    | call cr =>
+      simp only [Option.some.injEq] at hfm
+      subst hfm
+      exact ⟨he, hpat⟩
+    | scopeEnd _ => simp at hfm
+  · intro ⟨hmem, hpat⟩
+    rw [callsTo, List.mem_filter]
+    refine ⟨?_, hpat⟩
+    rw [extractCalls, List.mem_filterMap]
+    exact ⟨.call c, hmem, rfl⟩
+
 end JSCore

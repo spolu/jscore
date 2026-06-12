@@ -9,6 +9,27 @@
 
 import { RequiresAnnotation, InvariantAnnotation, EnsuresAnnotation } from "./annotation-parser";
 
+/**
+ * Thrown when an annotation cannot be translated to a non-trivial Lean
+ * proposition. Translation is FAIL-CLOSED: an annotation that doesn't
+ * translate is an extraction error, never a silently-provable `True`.
+ * (A human approves the annotation text; if its formal meaning evaporated,
+ * "proved" would mean nothing.)
+ */
+export class AnnotationTranslationError extends Error {
+  constructor(
+    public readonly functionName: string,
+    public readonly kind: "invariant" | "requires" | "ensures",
+    public readonly annotation: string,
+    public readonly reason: string
+  ) {
+    super(
+      `[${functionName}] cannot translate @${kind} ‘${annotation}’: ${reason}`
+    );
+    this.name = "AnnotationTranslationError";
+  }
+}
+
 interface SyntacticInvariantTranslation {
   kind: "syntactic";
   conclusion: string;
@@ -67,7 +88,7 @@ export function generateTheorem(
   // avoid store shadowing/under-fueling artifacts.
   const runtimeFuel = Math.max(1, options?.runtimeFuel ?? 8);
   const requireHyps = requires.map((req, idx) =>
-    makeRequireHypothesisLine(req, params, idx)
+    makeRequireHypothesisLine(req, params, idx, functionName)
   );
 
   const lines: string[] = [];
@@ -98,7 +119,7 @@ export function generateTheorem(
     lines.push(`    (${ensParam} : Val)`);
     lines.push(`    (h_env_${ensParam} : env "${ensParam}" = some ${ensParam})`);
     lines.push(`    (h_store_${ensParam} : store "${ensParam}" = none)`);
-    const ensPred = translateEnsuresPred(ens, params, i);
+    const ensPred = translateEnsuresPred(ens, params, i, functionName);
     lines.push(`    (h_ensures_${i} : ${ensPred})`);
   }
 
@@ -185,16 +206,17 @@ function translateInvariantToLean(
       kind: "runtime",
       bindVar,
       pattern,
-      predicate: translateCallPred(pred.trim(), bindVar, params),
+      predicate: translateCallPred(pred.trim(), bindVar, params, functionName, prop),
     };
   }
 
-  return {
-    kind: "runtime",
-    bindVar: "c",
-    pattern: "*",
-    predicate: `True /- TODO invariant: ${sanitizeTodo(prop)} -/`,
-  };
+  throw new AnnotationTranslationError(
+    functionName,
+    "invariant",
+    prop,
+    "unsupported invariant shape — supported: '¬ tainted X in call P', " +
+      "'tainted X in call P', '¬ ∃ call P', '∀ call P (c) => <pred>'"
+  );
 }
 
 /**
@@ -206,7 +228,8 @@ function translateInvariantToLean(
 function translateEnsuresPred(
   ens: EnsuresAnnotation,
   params: string[],
-  _ensIndex: number
+  _ensIndex: number,
+  functionName: string
 ): string {
   const pred = ens.pred.trim();
 
@@ -232,13 +255,20 @@ function translateEnsuresPred(
     }
   }
 
-  return `True /- TODO @ensures: ${ens.binding}.${sanitizeTodo(pred)} -/`;
+  throw new AnnotationTranslationError(
+    functionName,
+    "ensures",
+    `${ens.binding}.${pred}`,
+    "unsupported ensures shape — supported: '<binding>.<path> = <expr>' / '≠'"
+  );
 }
 
 function translateCallPred(
   pred: string,
   callVar: string,
-  params: string[]
+  params: string[],
+  functionName: string,
+  fullProp: string
 ): string {
   // c.where.workspaceId = auth.workspaceId
   const eqMatch = pred.match(
@@ -256,7 +286,12 @@ function translateCallPred(
     return `${leanLeft} ${leanOp} ${leanRight}`;
   }
 
-  return `True /- TODO: ${pred} -/`;
+  throw new AnnotationTranslationError(
+    functionName,
+    "invariant",
+    fullProp,
+    `unsupported call predicate '${pred}' — supported: '<path> = <path>' / '≠' over ${callVar}.* and parameters`
+  );
 }
 
 /**
@@ -318,7 +353,7 @@ function buildCanonicalRuntimeTheorem(input: CanonicalRuntimeTheoremInput): stri
     lines.push(`    (${param} : Val)`);
   }
   for (let i = 0; i < requires.length; i++) {
-    const req = translateRequireToLean(requires[i].prop, params, i);
+    const req = translateRequireToLean(requires[i].prop, params, i, functionName);
     lines.push(`    (h_req_${i} : ${req})`);
   }
   lines.push(`    (h_fuel : fuel = ${runtimeFuel})`);
@@ -359,16 +394,18 @@ function buildCanonicalEnvExpr(params: string[]): string {
 function makeRequireHypothesisLine(
   req: RequiresAnnotation,
   params: string[],
-  reqIndex: number
+  reqIndex: number,
+  functionName: string
 ): string {
-  const reqProp = translateRequireToLean(req.prop, params, reqIndex);
+  const reqProp = translateRequireToLean(req.prop, params, reqIndex, functionName);
   return `    (h_req_${reqIndex} : ${reqProp})`;
 }
 
 function translateRequireToLean(
   prop: string,
   params: string[],
-  reqIndex: number
+  reqIndex: number,
+  functionName: string
 ): string {
   const trimmed = prop.trim();
 
@@ -411,7 +448,13 @@ function translateRequireToLean(
     }
   }
 
-  return `True /- TODO @requires: ${sanitizeTodo(trimmed)} -/`;
+  throw new AnnotationTranslationError(
+    functionName,
+    "requires",
+    trimmed,
+    "unsupported requires shape — supported: comparisons (= ≠ < ≤ > ≥), " +
+      "'∈ [..]', 'starts_with', over parameters/paths and literals"
+  );
 }
 
 function normalizeIneqOp(op: string): string {
@@ -494,10 +537,6 @@ function escapeLeanString(s: string): string {
     .replace(/"/g, '\\"')
     .replace(/\n/g, "\\n")
     .replace(/\t/g, "\\t");
-}
-
-function sanitizeTodo(text: string): string {
-  return text.replace(/-\//g, "- /");
 }
 
 function sanitizeTag(tag: string): string {

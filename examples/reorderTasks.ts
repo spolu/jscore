@@ -12,8 +12,7 @@ declare const db: {
   };
 };
 
-// @requires auth.workspaceId > 0
-// @invariant ws-isolation: ∀ call db.* (c) => c.where.projectId = projectId
+// @invariant scope-limited: ∀ call db.* (c) => c.where.projectId = projectId
 async function reorderTasks(
   auth: Auth,
   projectId: string,

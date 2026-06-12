@@ -13,7 +13,7 @@ import {
   InvariantAnnotation,
   EnsuresAnnotation,
 } from "./annotation-parser";
-import { generateTheorem } from "./lean-theorem";
+import { generateTheorem, AnnotationTranslationError } from "./lean-theorem";
 import { mergeProofs } from "./proof-merge";
 import * as fs from "fs";
 import * as path from "path";
@@ -27,6 +27,17 @@ export interface ExtractionResult {
     invariantCount: number;
     requiresCount: number;
   }[];
+}
+
+/** A source file whose extraction failed (e.g. fail-closed annotation translation). */
+export interface ExtractionFailure {
+  sourceFile: string;
+  message: string;
+}
+
+export interface ExtractionOutcome {
+  results: ExtractionResult[];
+  failures: ExtractionFailure[];
 }
 
 /**
@@ -132,20 +143,31 @@ export function extractFiles(
   filePaths: string[],
   outputDir: string,
   tsConfigPath?: string
-): ExtractionResult[] {
+): ExtractionOutcome {
   const project = new Project({
     tsConfigFilePath: tsConfigPath,
     skipAddingFilesFromTsConfig: true,
   });
 
   const allResults: ExtractionResult[] = [];
+  const failures: ExtractionFailure[] = [];
 
   for (const filePath of filePaths) {
-    const result = extractFile(filePath, project, outputDir);
-    if (result) allResults.push(result);
+    try {
+      const result = extractFile(filePath, project, outputDir);
+      if (result) allResults.push(result);
+    } catch (e) {
+      if (e instanceof AnnotationTranslationError) {
+        // Fail closed: no .lean output is written for this file; the failure
+        // is reported and the CLI exits non-zero.
+        failures.push({ sourceFile: filePath, message: e.message });
+      } else {
+        throw e;
+      }
+    }
   }
 
-  return allResults;
+  return { results: allResults, failures };
 }
 
 function containsSorry(expr: JsCoreExpr): boolean {

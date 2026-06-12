@@ -1,9 +1,14 @@
 /-
   JSCore₀ Evaluator — eval with global fuel parameter.
   Structural recursion on `fuel`.
-  List processing uses List.foldl (opaque to recursion checker).
-  ForOf also uses List.foldl inline.
-  WhileLoop uses a separate Nat recursion via evalWhile.
+
+  List-shaped sub-evaluations (object fields, array elements, call arguments,
+  forOf iterations) use top-level helper functions taking an evaluation closure
+  (same pattern as evalWhileAux). All of them SHORT-CIRCUIT on the first non-ok
+  outcome — a throw inside an object literal, array literal, or argument list
+  aborts evaluation of the enclosing expression, and a call whose argument
+  evaluation fails is NOT recorded in the trace (matching JS semantics, where
+  the callee is never invoked).
 -/
 import JSCore.Trace
 
@@ -57,6 +62,49 @@ def evalWhileAux (loopFuel : Nat) (evalCond evalBody : Store → Result)
     | .ok _ => mkResult (.error (.str "while condition not boolean")) rc.store (accTrace ++ rc.trace)
     | _ => mkResult rc.outcome rc.store (accTrace ++ rc.trace)
 
+/-- Evaluate named expressions (object fields / call arguments) left-to-right.
+    Returns the accumulated `(key, value)` pairs and a `Result` whose outcome is
+    `.ok .none` if every expression succeeded. Short-circuits on the first
+    non-ok outcome: the failing outcome/store/trace are returned and the
+    remaining expressions are NOT evaluated. -/
+def evalPairsAux (evalFn : Store → Expr → Result) :
+    List (String × Expr) → Store → List TraceEntry → List (String × Val) →
+    List (String × Val) × Result
+  | [], store, accTrace, accVals =>
+    (accVals, mkResult (.ok .none) store accTrace)
+  | (k, e) :: rest, store, accTrace, accVals =>
+    let r := evalFn store e
+    match r.outcome with
+    | .ok v => evalPairsAux evalFn rest r.store (accTrace ++ r.trace) (accVals ++ [(k, v)])
+    | _ => (accVals, mkResult r.outcome r.store (accTrace ++ r.trace))
+
+/-- Evaluate array element expressions left-to-right.
+    Same short-circuit discipline as `evalPairsAux`. -/
+def evalElemsAux (evalFn : Store → Expr → Result) :
+    List Expr → Store → List TraceEntry → List Val →
+    List Val × Result
+  | [], store, accTrace, accVals =>
+    (accVals, mkResult (.ok .none) store accTrace)
+  | e :: rest, store, accTrace, accVals =>
+    let r := evalFn store e
+    match r.outcome with
+    | .ok v => evalElemsAux evalFn rest r.store (accTrace ++ r.trace) (accVals ++ [v])
+    | _ => (accVals, mkResult r.outcome r.store (accTrace ++ r.trace))
+
+/-- Run a forOf body over a list of elements. `break` stops the loop (yielding
+    `.ok .none`), `return` and errors stop it propagating their outcome —
+    matching JS `for...of` semantics. -/
+def evalForOfAux (evalBody : Val → Store → Result) :
+    List Val → Store → List TraceEntry → Result
+  | [], store, accTrace => mkResult (.ok .none) store accTrace
+  | elem :: rest, store, accTrace =>
+    let r := evalBody elem store
+    match r.outcome with
+    | .ok _ => evalForOfAux evalBody rest r.store (accTrace ++ r.trace)
+    | .brk => mkResult (.ok .none) r.store (accTrace ++ r.trace)
+    | .returned v => mkResult (.returned v) r.store (accTrace ++ r.trace)
+    | .error e => mkResult (.error e) r.store (accTrace ++ r.trace)
+
 -- Main evaluator with global fuel
 def eval (fuel : Nat) (env : Env) (store : Store) (e : Expr) : Result :=
   match fuel with
@@ -108,42 +156,29 @@ def eval (fuel : Nat) (env : Env) (store : Store) (e : Expr) : Result :=
       | _ => r
 
     | .obj pairs =>
-      let result := pairs.foldl (fun (acc : List (String × Val) × Store × List TraceEntry)
-          (pair : String × Expr) =>
-        let (vals, curStore, curTrace) := acc
-        let r := eval fuel' env curStore pair.2
-        match r.outcome with
-        | .ok v => (vals ++ [(pair.1, v)], r.store, curTrace ++ r.trace)
-        | _ => (vals, r.store, curTrace ++ r.trace)
-      ) ([], store, [])
-      mkResult (.ok (.obj result.1)) result.2.1 result.2.2
+      let pr := evalPairsAux (eval fuel' env) pairs store [] []
+      match pr.2.outcome with
+      | .ok _ => mkResult (.ok (.obj pr.1)) pr.2.store pr.2.trace
+      | _ => pr.2
 
     | .spread base overrides =>
       let rb := eval fuel' env store base
       match rb.outcome with
       | .ok (.obj baseFields) =>
-        let result := overrides.foldl (fun (acc : List (String × Val) × Store × List TraceEntry)
-            (pair : String × Expr) =>
-          let (vals, curStore, curTrace) := acc
-          let r := eval fuel' env curStore pair.2
-          match r.outcome with
-          | .ok v => (vals ++ [(pair.1, v)], r.store, curTrace ++ r.trace)
-          | _ => (vals, r.store, curTrace ++ r.trace)
-        ) ([], rb.store, [])
-        let merged := result.1.foldl (fun acc (k, v) => fieldSet acc k v) baseFields
-        mkResult (.ok (.obj merged)) result.2.1 (rb.trace ++ result.2.2)
+        let pr := evalPairsAux (eval fuel' env) overrides rb.store rb.trace []
+        match pr.2.outcome with
+        | .ok _ =>
+          let merged := pr.1.foldl (fun acc kv => fieldSet acc kv.1 kv.2) baseFields
+          mkResult (.ok (.obj merged)) pr.2.store pr.2.trace
+        | _ => pr.2
       | .ok _ => mkResult (.error (.str "spread on non-object")) rb.store rb.trace
       | _ => rb
 
     | .arr exprs =>
-      let result := exprs.foldl (fun (acc : List Val × Store × List TraceEntry) (expr : Expr) =>
-        let (vals, curStore, curTrace) := acc
-        let r := eval fuel' env curStore expr
-        match r.outcome with
-        | .ok v => (vals ++ [v], r.store, curTrace ++ r.trace)
-        | _ => (vals, r.store, curTrace ++ r.trace)
-      ) ([], store, [])
-      mkResult (.ok (.arr result.1)) result.2.1 result.2.2
+      let er := evalElemsAux (eval fuel' env) exprs store [] []
+      match er.2.outcome with
+      | .ok _ => mkResult (.ok (.arr er.1)) er.2.store er.2.trace
+      | _ => er.2
 
     | .index e idx =>
       let re := eval fuel' env store e
@@ -165,7 +200,11 @@ def eval (fuel : Nat) (env : Env) (store : Store) (e : Expr) : Result :=
       let rv := eval fuel' env store valExpr
       match rv.outcome with
       | .ok v =>
-        match lookup env rv.store arrName with
+        -- Store-only lookup: pushed names must be letMut-bound. Pushing an
+        -- Env-bound (letConst) array errors rather than silently shadowing it
+        -- in Store, preserving Env/Store disjointness. The extractor
+        -- classifies pushed arrays as letMut even when declared `const`.
+        match rv.store arrName with
         | some (.arr elems) =>
           let newArr := Val.arr (elems ++ [v])
           mkResult (.ok newArr) (rv.store.set arrName newArr) rv.trace
@@ -196,16 +235,8 @@ def eval (fuel : Nat) (env : Env) (store : Store) (e : Expr) : Result :=
       let ra := eval fuel' env store arrExpr
       match ra.outcome with
       | .ok (.arr elems) =>
-        elems.foldl (fun (acc : Result) elem =>
-          match acc.outcome with
-          | .ok _ =>
-            let r := eval fuel' (env.set x elem) acc.store body
-            match r.outcome with
-            | .brk => mkResult (.ok .none) r.store (acc.trace ++ r.trace)
-            | .returned v => mkResult (.returned v) r.store (acc.trace ++ r.trace)
-            | _ => mkResult r.outcome r.store (acc.trace ++ r.trace)
-          | _ => acc
-        ) (mkResult (.ok .none) ra.store ra.trace)
+        evalForOfAux (fun elem st => eval fuel' (env.set x elem) st body)
+          elems ra.store ra.trace
       | .ok _ => mkResult (.error (.str "forOf on non-array")) ra.store ra.trace
       | _ => ra
 
@@ -224,22 +255,16 @@ def eval (fuel : Nat) (env : Env) (store : Store) (e : Expr) : Result :=
       | _ => r
 
     | .call target argExprs resultBinder body =>
-      let argResult := argExprs.foldl (fun (acc : List (String × Val) × Store × List TraceEntry)
-          (pair : String × Expr) =>
-        let (vals, curStore, curTrace) := acc
-        let r := eval fuel' env curStore pair.2
-        match r.outcome with
-        | .ok v => (vals ++ [(pair.1, v)], r.store, curTrace ++ r.trace)
-        | _ => (vals, r.store, curTrace ++ r.trace)
-      ) ([], store, [])
-      let (argVals, argStore, argTrace) := argResult
-      let cr : CallRecord := { target := target, args := argVals, resultId := resultBinder }
-      let callTrace := argTrace ++ [.call cr]
-      -- Result value is universally quantified in proofs.
-      -- For evaluation, we use Val.none as the default result.
-      let resultVal := Val.none
-      let r := eval fuel' (env.set resultBinder resultVal) argStore body
-      mkResult r.outcome r.store (callTrace ++ r.trace)
+      let pr := evalPairsAux (eval fuel' env) argExprs store [] []
+      match pr.2.outcome with
+      | .ok _ =>
+        let cr : CallRecord := { target := target, args := pr.1, resultId := resultBinder }
+        let callTrace := pr.2.trace ++ [.call cr]
+        -- Result value is universally quantified in proofs (via @ensures params).
+        -- For evaluation, we use Val.none as the default result.
+        let r := eval fuel' (env.set resultBinder Val.none) pr.2.store body
+        mkResult r.outcome r.store (callTrace ++ r.trace)
+      | _ => pr.2
 
     | .throw e =>
       let r := eval fuel' env store e
@@ -271,17 +296,11 @@ def eval (fuel : Nat) (env : Env) (store : Store) (e : Expr) : Result :=
       | .ok v => mkResult (evalUnOp op v) r.store r.trace
       | _ => r
 
--- Top-level wrapper for forOf used in theorems (explicit recursion on elems)
+/-- Top-level forOf used in theorems. With `evalForOfAux` this is exactly what
+    eval's `forOf` case computes — the two agree definitionally (the old
+    foldl-vs-explicit-recursion break mismatch is gone). -/
 def evalForOf (fuel : Nat) (env : Env) (store : Store) (x : String)
     (elems : List Val) (body : Expr) (pfx : List TraceEntry) : Result :=
-  match elems with
-  | [] => mkResult (.ok .none) store pfx
-  | hd :: tl =>
-    let r := eval fuel (env.set x hd) store body
-    match r.outcome with
-    | .ok _ => evalForOf fuel env r.store x tl body (pfx ++ r.trace)
-    | .brk => mkResult (.ok .none) r.store (pfx ++ r.trace)
-    | .returned v => mkResult (.returned v) r.store (pfx ++ r.trace)
-    | .error e => mkResult (.error e) r.store (pfx ++ r.trace)
+  evalForOfAux (fun elem st => eval fuel (env.set x elem) st body) elems store pfx
 
 end JSCore

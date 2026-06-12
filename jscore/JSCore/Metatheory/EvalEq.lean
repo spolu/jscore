@@ -24,6 +24,69 @@ theorem lookup_some {env : Env} {store : Store} {x : String} {v : Val}
     (h : store x = some v) : lookup env store x = some v := by
   unfold lookup; rw [h]; rfl
 
+-- Equation lemmas for the list-evaluation helpers
+
+theorem evalPairsAux_nil {f : Store → Expr → Result} {store : Store}
+    {accTrace : List TraceEntry} {accVals : List (String × Val)} :
+    evalPairsAux f [] store accTrace accVals =
+    (accVals, mkResult (.ok .none) store accTrace) := rfl
+
+theorem evalPairsAux_cons {f : Store → Expr → Result} {k : String} {e : Expr}
+    {rest : List (String × Expr)} {store : Store} {accTrace : List TraceEntry}
+    {accVals : List (String × Val)} :
+    evalPairsAux f ((k, e) :: rest) store accTrace accVals =
+    (let r := f store e
+     match r.outcome with
+     | .ok v => evalPairsAux f rest r.store (accTrace ++ r.trace) (accVals ++ [(k, v)])
+     | _ => (accVals, mkResult r.outcome r.store (accTrace ++ r.trace))) := rfl
+
+theorem evalElemsAux_nil {f : Store → Expr → Result} {store : Store}
+    {accTrace : List TraceEntry} {accVals : List Val} :
+    evalElemsAux f [] store accTrace accVals =
+    (accVals, mkResult (.ok .none) store accTrace) := rfl
+
+theorem evalElemsAux_cons {f : Store → Expr → Result} {e : Expr} {rest : List Expr}
+    {store : Store} {accTrace : List TraceEntry} {accVals : List Val} :
+    evalElemsAux f (e :: rest) store accTrace accVals =
+    (let r := f store e
+     match r.outcome with
+     | .ok v => evalElemsAux f rest r.store (accTrace ++ r.trace) (accVals ++ [v])
+     | _ => (accVals, mkResult r.outcome r.store (accTrace ++ r.trace))) := rfl
+
+theorem evalForOfAux_nil {evalBody : Val → Store → Result} {store : Store}
+    {accTrace : List TraceEntry} :
+    evalForOfAux evalBody [] store accTrace = mkResult (.ok .none) store accTrace := rfl
+
+theorem evalForOfAux_cons {evalBody : Val → Store → Result} {elem : Val}
+    {rest : List Val} {store : Store} {accTrace : List TraceEntry} :
+    evalForOfAux evalBody (elem :: rest) store accTrace =
+    (let r := evalBody elem store
+     match r.outcome with
+     | .ok _ => evalForOfAux evalBody rest r.store (accTrace ++ r.trace)
+     | .brk => mkResult (.ok .none) r.store (accTrace ++ r.trace)
+     | .returned v => mkResult (.returned v) r.store (accTrace ++ r.trace)
+     | .error e => mkResult (.error e) r.store (accTrace ++ r.trace)) := rfl
+
+-- Convenience steppers for the common case: a pure sub-expression
+-- (evaluates ok, no store change, no trace).
+
+theorem evalPairsAux_pure_cons {f : Store → Expr → Result} {k : String} {e : Expr}
+    {rest : List (String × Expr)} {store : Store} {accTrace : List TraceEntry}
+    {accVals : List (String × Val)} {v : Val}
+    (h : f store e = mkResult (.ok v) store []) :
+    evalPairsAux f ((k, e) :: rest) store accTrace accVals =
+    evalPairsAux f rest store accTrace (accVals ++ [(k, v)]) := by
+  rw [evalPairsAux_cons, h]
+  simp only [mkResult_outcome, mkResult_store, mkResult_trace, List.append_nil]
+
+theorem evalElemsAux_pure_cons {f : Store → Expr → Result} {e : Expr} {rest : List Expr}
+    {store : Store} {accTrace : List TraceEntry} {accVals : List Val} {v : Val}
+    (h : f store e = mkResult (.ok v) store []) :
+    evalElemsAux f (e :: rest) store accTrace accVals =
+    evalElemsAux f rest store accTrace (accVals ++ [v]) := by
+  rw [evalElemsAux_cons, h]
+  simp only [mkResult_outcome, mkResult_store, mkResult_trace, List.append_nil]
+
 -- eval equation lemmas (single-step, no recursive unfolding)
 
 theorem eval_var_eq {n : Nat} {env : Env} {store : Store} {x : String} :
@@ -98,17 +161,7 @@ theorem eval_forOf_eq {n : Nat} {env : Env} {store : Store}
     eval (n + 1) env store (Expr.forOf x arrExpr body) =
     (let ra := eval n env store arrExpr
      match ra.outcome with
-     | .ok (.arr elems) =>
-       elems.foldl (fun (acc : Result) (elem : Val) =>
-         match acc.outcome with
-         | .ok _ =>
-           let r := eval n (env.set x elem) acc.store body
-           match r.outcome with
-           | .brk => mkResult (.ok .none) r.store (acc.trace ++ r.trace)
-           | .returned v => mkResult (.returned v) r.store (acc.trace ++ r.trace)
-           | _ => mkResult r.outcome r.store (acc.trace ++ r.trace)
-         | _ => acc
-       ) (mkResult (.ok .none) ra.store ra.trace)
+     | .ok (.arr elems) => evalForOf n env ra.store x elems body ra.trace
      | .ok _ => mkResult (.error (.str "forOf on non-array")) ra.store ra.trace
      | _ => ra) := rfl
 
@@ -116,20 +169,14 @@ theorem eval_call_eq {n : Nat} {env : Env} {store : Store}
     {target : String} {argExprs : List (String × Expr)}
     {resultBinder : String} {body : Expr} :
     eval (n + 1) env store (Expr.call target argExprs resultBinder body) =
-    (let argResult := argExprs.foldl (fun (acc : List (String × Val) × Store × List TraceEntry)
-        (pair : String × Expr) =>
-      let (vals, curStore, curTrace) := acc
-      let r := eval n env curStore pair.2
-      match r.outcome with
-      | .ok v => (vals ++ [(pair.1, v)], r.store, curTrace ++ r.trace)
-      | _ => (vals, r.store, curTrace ++ r.trace)
-    ) ([], store, [])
-    let (argVals, argStore, argTrace) := argResult
-    let cr : CallRecord := { target := target, args := argVals, resultId := resultBinder }
-    let callTrace := argTrace ++ [.call cr]
-    let resultVal := Val.none
-    let r := eval n (env.set resultBinder resultVal) argStore body
-    mkResult r.outcome r.store (callTrace ++ r.trace)) := rfl
+    (let pr := evalPairsAux (eval n env) argExprs store [] []
+     match pr.2.outcome with
+     | .ok _ =>
+       let cr : CallRecord := { target := target, args := pr.1, resultId := resultBinder }
+       let callTrace := pr.2.trace ++ [.call cr]
+       let r := eval n (env.set resultBinder Val.none) pr.2.store body
+       mkResult r.outcome r.store (callTrace ++ r.trace)
+     | _ => pr.2) := rfl
 
 theorem eval_ret_eq {n : Nat} {env : Env} {store : Store} {e : Expr} :
     eval (n + 1) env store (Expr.ret e) =
@@ -152,15 +199,32 @@ theorem eval_field_eq {n : Nat} {env : Env} {store : Store}
 
 theorem eval_obj_eq {n : Nat} {env : Env} {store : Store} {pairs : List (String × Expr)} :
     eval (n + 1) env store (.obj pairs) =
-    (let result := pairs.foldl (fun (acc : List (String × Val) × Store × List TraceEntry)
-        (pair : String × Expr) =>
-      let (vals, curStore, curTrace) := acc
-      let r := eval n env curStore pair.2
-      match r.outcome with
-      | .ok v => (vals ++ [(pair.1, v)], r.store, curTrace ++ r.trace)
-      | _ => (vals, r.store, curTrace ++ r.trace)
-    ) ([], store, [])
-    mkResult (.ok (.obj result.1)) result.2.1 result.2.2) := rfl
+    (let pr := evalPairsAux (eval n env) pairs store [] []
+     match pr.2.outcome with
+     | .ok _ => mkResult (.ok (.obj pr.1)) pr.2.store pr.2.trace
+     | _ => pr.2) := rfl
+
+theorem eval_arr_eq {n : Nat} {env : Env} {store : Store} {exprs : List Expr} :
+    eval (n + 1) env store (.arr exprs) =
+    (let er := evalElemsAux (eval n env) exprs store [] []
+     match er.2.outcome with
+     | .ok _ => mkResult (.ok (.arr er.1)) er.2.store er.2.trace
+     | _ => er.2) := rfl
+
+theorem eval_spread_eq {n : Nat} {env : Env} {store : Store}
+    {base : Expr} {overrides : List (String × Expr)} :
+    eval (n + 1) env store (.spread base overrides) =
+    (let rb := eval n env store base
+     match rb.outcome with
+     | .ok (.obj baseFields) =>
+       let pr := evalPairsAux (eval n env) overrides rb.store rb.trace []
+       match pr.2.outcome with
+       | .ok _ =>
+         let merged := pr.1.foldl (fun acc kv => fieldSet acc kv.1 kv.2) baseFields
+         mkResult (.ok (.obj merged)) pr.2.store pr.2.trace
+       | _ => pr.2
+     | .ok _ => mkResult (.error (.str "spread on non-object")) rb.store rb.trace
+     | _ => rb) := rfl
 
 theorem eval_binOp_eq {n : Nat} {env : Env} {store : Store}
     {op : BinOp} {e1 e2 : Expr} :

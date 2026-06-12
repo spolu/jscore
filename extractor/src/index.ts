@@ -88,7 +88,7 @@ function runExtract(
   outputDir: string,
   tsConfig?: string
 ): ExtractionResult[] {
-  const results = extractFiles(filePaths, outputDir, tsConfig);
+  const { results, failures } = extractFiles(filePaths, outputDir, tsConfig);
 
   let totalFunctions = 0;
   for (const r of results) {
@@ -103,6 +103,21 @@ function runExtract(
   }
 
   console.log(`\nExtracted ${totalFunctions} function(s) in ${results.length} file(s) to ${outputDir}`);
+
+  if (failures.length > 0) {
+    console.error(
+      `\n${failures.length} file(s) FAILED extraction (annotation translation is fail-closed):`
+    );
+    for (const f of failures) {
+      console.error(`  ✖ ${f.sourceFile}`);
+      console.error(`      ${f.message}`);
+    }
+    console.error(
+      "\nNo .lean output was written for failed files. Fix or remove the offending annotations."
+    );
+    process.exit(1);
+  }
+
   return results;
 }
 

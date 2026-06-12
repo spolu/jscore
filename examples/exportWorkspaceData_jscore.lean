@@ -54,10 +54,9 @@ private theorem eval_arg_obj (n : Nat) (env : Env) (store : Store)
     mkResult (.ok (Val.obj [("workspaceId", wsVal)])) store [] := by
   obtain ⟨n', rfl⟩ : ∃ n', n = n' + 4 := ⟨n - 4, by omega⟩
   rw [show n' + 4 = (n' + 3) + 1 from by omega, eval_obj_eq]
-  simp only [List.foldl]
-  rw [eval_field_var h_env h_store h_fl (by omega)]
-  simp only [mkResult_outcome, mkResult_store, mkResult_trace,
-             List.nil_append, List.append_nil]
+  rw [evalPairsAux_pure_cons (eval_field_var h_env h_store h_fl (by omega))]
+  rw [evalPairsAux_nil]
+  rfl
 
 -- Helper: ret of obj of vars has no db.* calls in trace
 
@@ -68,14 +67,22 @@ private theorem ret_obj_vars_no_calls (env : Env) (store : Store) :
       (.ret (.obj [("projects", .var "projects"), ("tasks", .var "tasks")]))).trace = [] := by
     rw [show (4:Nat) = 3+1 from rfl, eval_ret_trace]
     rw [show (3:Nat) = 2+1 from rfl, eval_obj_eq]
-    simp only [List.foldl, eval_var_trace_nil (n := 1), eval_var_store_eq (n := 1),
-               List.nil_append, List.append_nil]
-    generalize (eval 2 env store (Expr.var "projects")).outcome = o1
-    cases o1 <;> (
-      simp only [mkResult_outcome, mkResult_store, mkResult_trace, List.nil_append, List.append_nil,
-                 eval_var_trace_nil (n := 1), eval_var_store_eq (n := 1)]
-      generalize (eval 2 env store (Expr.var "tasks")).outcome = o2
-      cases o2 <;> simp [mkResult_trace])
+    cases h1 : lookup env store "projects" with
+    | none =>
+      rw [evalPairsAux_cons, show (2:Nat) = 1+1 from rfl, eval_var_eq, h1]
+      rfl
+    | some v1 =>
+      rw [evalPairsAux_pure_cons (v := v1)
+          (by rw [show (2:Nat) = 1+1 from rfl, eval_var_eq, h1])]
+      cases h2 : lookup env store "tasks" with
+      | none =>
+        rw [evalPairsAux_cons, show (2:Nat) = 1+1 from rfl, eval_var_eq, h2]
+        rfl
+      | some v2 =>
+        rw [evalPairsAux_pure_cons (v := v2)
+            (by rw [show (2:Nat) = 1+1 from rfl, eval_var_eq, h2])]
+        rw [evalPairsAux_nil]
+        rfl
   rw [h_t]; rfl
 
 -- Main theorem
@@ -113,8 +120,9 @@ theorem exportWorkspaceData_ws_isolation
   -- Step through outer call
   simp only [exportWorkspaceData_body] at hc
   rw [show (6:Nat) = 5+1 from rfl, eval_call_eq] at hc
-  simp only [List.foldl] at hc
-  rw [eval_arg_obj 5 env store fields (Val.num n) h_env_auth h_store_auth h_fl (by omega)] at hc
+  rw [evalPairsAux_pure_cons
+      (eval_arg_obj 5 env store fields (Val.num n) h_env_auth h_store_auth h_fl (by omega)),
+      evalPairsAux_nil] at hc
   simp only [mkResult_outcome, mkResult_store, mkResult_trace,
              List.nil_append, List.append_nil] at hc
   -- Split: [.call cr1] ++ inner_trace
@@ -129,9 +137,10 @@ theorem exportWorkspaceData_ws_isolation
     have h_env_auth2 : (env.set "projects" Val.none) "auth" = some (Val.obj fields) := by
       simp [Env.set, show ("auth" : String) ≠ "projects" from by decide, h_env_auth]
     rw [show (5:Nat) = 4+1 from rfl, eval_call_eq] at h2
-    simp only [List.foldl] at h2
-    rw [eval_arg_obj 4 (env.set "projects" Val.none) store fields (Val.num n)
-        h_env_auth2 h_store_auth h_fl (by omega)] at h2
+    rw [evalPairsAux_pure_cons
+        (eval_arg_obj 4 (env.set "projects" Val.none) store fields (Val.num n)
+          h_env_auth2 h_store_auth h_fl (by omega)),
+        evalPairsAux_nil] at h2
     simp only [mkResult_outcome, mkResult_store, mkResult_trace,
                List.nil_append, List.append_nil] at h2
     -- Split: [.call cr2] ++ ret_trace

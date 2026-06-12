@@ -4,7 +4,7 @@
  */
 
 import { Node, SyntaxKind, TypeChecker, SourceFile, ts } from "ts-morph";
-import { findReassignedVars } from "./reassignment";
+import { findReassignedVars, findPushedVars } from "./reassignment";
 
 // JSCore₀ expression types (mirror the Lean inductive)
 export type JsCoreExpr =
@@ -64,6 +64,7 @@ export interface EnsuresInfo {
 interface ExtractionContext {
   checker: TypeChecker;
   reassigned: Set<string>;
+  pushed: Set<string>; // names mutated via .push() — must be letMut even if const
   freshCounter: number;
   defaultFuel: number;
   ensuresBindings: Set<string>; // bindings that have @ensures annotations
@@ -88,9 +89,11 @@ export function extractFunction(
   }
 
   const reassigned = findReassignedVars(body);
+  const pushed = findPushedVars(body);
   const ctx: ExtractionContext = {
     checker,
     reassigned,
+    pushed,
     freshCounter: 0,
     defaultFuel,
     ensuresBindings,
@@ -286,7 +289,10 @@ function extractVariableStatement(
     }
 
     const isLet = declList.getText().startsWith("let ");
-    if (isLet && ctx.reassigned.has(name)) {
+    // Pushed arrays must be letMut even when declared `const`: JSCore₀'s
+    // `push` writes into Store, and a const-bound (Env) name with Store
+    // mutations would break Env/Store disjointness.
+    if ((isLet && ctx.reassigned.has(name)) || ctx.pushed.has(name)) {
       body = { tag: "letMut", name, value, body };
     } else {
       body = { tag: "letConst", name, value, body };
