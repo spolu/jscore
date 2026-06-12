@@ -363,8 +363,11 @@ the checker can't do is a candidate next feature.
 5. ✅ **DONE 2026-06** — `scripts/ci.sh`: builds both projects, sorry audit
    (TaintSoundness allowlisted), native_decide forbidden in the library,
    extractor round-trip idempotence over examples.
-6. ◐ Partial — `push`/`letMut` fixed (§2.8). Still open: document the
-   JS-divergence contract (§2.9); extractor rejects `/`, `%`, object `===`.
+6. ◐ Mostly done — `push`/`letMut` fixed (§2.8); extractor rejects `/`, `%`,
+   object `===`/`!==`, and unknown operators (no more silent `add` fallback) —
+   rejected code extracts as `sorry`. Still open: write the JS-divergence
+   contract document (§2.9: Int vs float, field/index on non-objects → `ok
+   none`, no undefined/null distinction, Promise.all sequentialization).
 
 Exit criterion: every theorem that CI reports "proved" means what the annotation says,
 for all sufficient fuels, with no vacuous hypotheses.

@@ -743,9 +743,36 @@ function extractExpr(node: Node, ctx: ExtractionContext): JsCoreExpr {
           };
         }
 
+        const opName = binaryOpToJsCore(op.getKind());
+
+        // Reject operators whose JSCore₀ semantics diverge from JS:
+        // - `/` and `%` are truncating Int ops in the model; JS numbers are
+        //   IEEE-754 doubles. An invariant proved about `a / b` in the model
+        //   could be false at runtime.
+        // - `===`/`!==` between non-primitive operands is reference equality
+        //   in JS but structural (field-order-sensitive) BEq in the model.
+        // Rejection emits `sorry` — the function is flagged unverifiable
+        // rather than verified against wrong semantics.
+        if (opName === null || opName === "div" || opName === "mod") {
+          return {
+            tag: "sorry",
+            reason: `unsupported operator '${op.getText()}' (JS semantics diverge from the Int model)`,
+          };
+        }
+        if (
+          (opName === "eq" || opName === "neq") &&
+          (!isPrimitiveLike(children[0]) || !isPrimitiveLike(children[2]))
+        ) {
+          return {
+            tag: "sorry",
+            reason:
+              "equality between non-primitive operands (JS reference equality vs structural model equality)",
+          };
+        }
+
         return {
           tag: "binOp",
-          op: binaryOpToJsCore(op.getKind()),
+          op: opName,
           left,
           right,
         };
@@ -948,7 +975,7 @@ function extractAwaitCall(
   return { target, args };
 }
 
-function binaryOpToJsCore(kind: SyntaxKind): string {
+function binaryOpToJsCore(kind: SyntaxKind): string | null {
   switch (kind) {
     case SyntaxKind.EqualsEqualsEqualsToken:
     case SyntaxKind.EqualsEqualsToken:
@@ -975,7 +1002,34 @@ function binaryOpToJsCore(kind: SyntaxKind): string {
     case SyntaxKind.PercentToken:
       return "mod";
     default:
-      return "add"; // fallback
+      return null; // unknown operator — caller rejects (no silent fallback)
+  }
+}
+
+/**
+ * Is this expression's TS type primitive-like (string/number/boolean/
+ * null/undefined, literals thereof, or unions of those)? Equality on
+ * primitives matches the model; equality on objects/arrays does not
+ * (JS reference equality vs structural BEq).
+ */
+function isPrimitiveLike(node: Node): boolean {
+  try {
+    const t = node.getType();
+    const parts = t.isUnion() ? t.getUnionTypes() : [t];
+    return parts.every(
+      (p) =>
+        p.isString() ||
+        p.isStringLiteral() ||
+        p.isNumber() ||
+        p.isNumberLiteral() ||
+        p.isBoolean() ||
+        p.isBooleanLiteral() ||
+        p.isNull() ||
+        p.isUndefined() ||
+        p.isEnumLiteral()
+    );
+  } catch {
+    return false; // can't determine the type — reject conservatively
   }
 }
 
