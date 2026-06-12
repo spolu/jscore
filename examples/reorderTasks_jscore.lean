@@ -37,32 +37,6 @@ abbrev loop_body : Expr :=
     "__void_0"
     Expr.none
 
--- Helpers: evaluate the two argument objects of the update call
-
-private theorem eval_where_arg (n : Nat) (env : Env) (store : Store) (tidVal pidVal : Val)
-    (h_tid : lookup env store "taskId" = some tidVal)
-    (h_pid : lookup env store "projectId" = some pidVal)
-    (hn : n ≥ 3) :
-    eval n env store (.obj [("id", .var "taskId"), ("projectId", .var "projectId")]) =
-    mkResult (.ok (Val.obj [("id", tidVal), ("projectId", pidVal)])) store [] := by
-  obtain ⟨n', rfl⟩ : ∃ n', n = n' + 3 := ⟨n - 3, by omega⟩
-  rw [show n' + 3 = (n' + 2) + 1 from by omega, eval_obj_eq]
-  rw [evalPairsAux_pure_cons (v := tidVal)
-      (by rw [show n' + 2 = (n' + 1) + 1 from by omega, eval_var_eq, h_tid])]
-  rw [evalPairsAux_pure_cons (v := pidVal)
-      (by rw [show n' + 2 = (n' + 1) + 1 from by omega, eval_var_eq, h_pid])]
-  rw [evalPairsAux_nil]
-  rfl
-
-private theorem eval_data_arg (n : Nat) (env : Env) (store : Store) (hn : n ≥ 2) :
-    eval n env store (.obj [("position", .numLit 0)]) =
-    mkResult (.ok (Val.obj [("position", Val.num 0)])) store [] := by
-  obtain ⟨n', rfl⟩ : ∃ n', n = n' + 2 := ⟨n - 2, by omega⟩
-  rw [show n' + 2 = (n' + 1) + 1 from by omega, eval_obj_eq]
-  rw [evalPairsAux_pure_cons (v := Val.num 0) (by rw [eval_numLit_eq])]
-  rw [evalPairsAux_nil]
-  rfl
-
 -- Helper: single iteration properties (store invariant + callsTo property)
 
 private theorem loop_body_props (env : Env) (store : Store) (elem projectId : Val)
@@ -85,17 +59,8 @@ private theorem loop_body_props (env : Env) (store : Store) (elem projectId : Va
                    args := [("where", Val.obj [("id", tidVal), ("projectId", projectId)]),
                             ("data", Val.obj [("position", Val.num 0)])],
                    resultId := "__void_0" }] := by
-      rw [show (4:Nat) = 3+1 from rfl]
       simp only [loop_body]
-      rw [eval_call_eq]
-      rw [evalPairsAux_pure_cons
-          (eval_where_arg 3 _ store tidVal projectId h_l_tid h_l_pid (by omega))]
-      rw [evalPairsAux_pure_cons (eval_data_arg 3 _ store (by omega))]
-      rw [evalPairsAux_nil]
-      rw [show (3:Nat) = 2+1 from rfl]
-      simp only [mkResult_outcome, mkResult_store, mkResult_trace, eval_none_eq,
-                 List.nil_append, List.append_nil]
-      rfl
+      eval_step [h_l_tid, h_l_pid]
     rw [h_eval]
     refine ⟨rfl, ?_⟩
     intro c hc
@@ -118,10 +83,7 @@ private theorem eval_outer_trace (env : Env) (store : Store) (elems : List Val)
   have h_lookup : lookup env store "tasks" = some (Val.arr elems) := by
     rw [lookup_none h_store_tasks, h_env_tasks]
   simp only [reorderTasks_body]
-  rw [show (6:Nat) = 5+1 from rfl, eval_seq_none_trace]
-  rw [show (5:Nat) = 4+1 from rfl, eval_forOf_eq]
-  rw [show (4:Nat) = 3+1 from rfl, eval_var_eq]
-  rw [h_lookup]
+  rw [eval_seq_none_trace, eval_forOf_eq, eval_var_eq, h_lookup]
   simp only [mkResult_outcome, mkResult_store, mkResult_trace]
 
 -- Non-array tasks produces no db.* calls
@@ -135,13 +97,12 @@ private theorem non_arr_no_calls (env : Env) (store : Store) (tasks : Val)
     rw [lookup_none h_store_tasks, h_env_tasks]
   have h_no : ∀ elems, (eval 4 env store (.var "tasks")).outcome ≠ .ok (.arr elems) := by
     intro elems
-    rw [show (4:Nat) = 3+1 from rfl, eval_var_eq, h_lookup]
+    rw [eval_var_eq, h_lookup]
     simp only [mkResult_outcome, ne_eq, Outcome.ok.injEq]
     exact h_not_arr elems
   simp only [reorderTasks_body]
-  rw [show (6:Nat) = 5+1 from rfl, eval_seq_none_trace]
-  rw [show (5:Nat) = 4+1 from rfl, eval_forOf_non_arr_trace h_no]
-  rw [show (4:Nat) = 3+1 from rfl, eval_var_trace_nil, callsTo_nil]
+  rw [eval_seq_none_trace, eval_forOf_non_arr_trace h_no]
+  rw [eval_var_trace_nil, callsTo_nil]
 
 theorem reorderTasks_scope_limited
     (fuel : Nat)

@@ -98,6 +98,8 @@ CI gate: `scripts/ci.sh` — builds both projects, audits sorry/native_decide, c
 
 Key tactics and lemmas for closing `sorry` in extracted files:
 - **First step of every runtime proof**: `rw [eval_fuel_mono N <fn>_body (by decide) fuel h_fuel]` — converts `eval fuel` to `eval N` using `h_fuel : fuel ≥ N` (FuelMono.lean; `Expr.depth` mirrors the extractor's `depthFuel`)
+- **`eval_step [facts]` / `eval_step [facts] at h`** — symbolically executes literal-fuel eval terms in one shot (equation lemmas + argAt/fieldLookup simp lemmas + your lookup facts, e.g. `lookup env store "x" = some v`, `h_fl : fieldLookup fields "f" = some w`, `lookup_none h_store_x`, `Env.set_ne (by decide)`). Numeral fuels unify with the `(n+1)` patterns directly — no `rw [show k = (k-1)+1 from rfl]` needed. See `examples/reorderTasks_jscore.lean` (`loop_body_props`)
+- `argAt c ["seg", …]` goals close by plain `simp` (Metatheory/ArgAt.lean lemmas)
 - `trace_simp` — fully concrete cases
 - `forOf_invariant` / `forOf_invariant'` — loop invariants on `evalForOf` (which eval's forOf case computes definitionally)
 - `forOf_callsTo` — callsTo invariant for forOf loops (see below)

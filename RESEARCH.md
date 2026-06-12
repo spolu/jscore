@@ -390,7 +390,15 @@ for all sufficient fuels, with no vacuous hypotheses.
    argAt goals by plain `simp`. All per-example argAtPath/String.splitOn
    helper lemmas deleted. Remaining: patterns/`matchesPattern` as segments
    (would kill the remaining example native_decides).
-2. Generic argAtPath/matchesPattern simp lemmas; simp sets; `eval_step` tactic (§6).
+2. ◐ **`eval_step` done 2026-06** — `eval_step [facts] (at h)?` in Tactics.lean
+   symbolically executes literal-fuel eval terms via one simp call (equation
+   lemmas + ArgAt lemmas + supplied lookup facts). Numeral fuels unify with
+   the `(n+1)` lemma patterns directly, so the `rw [show k = (k-1)+1 ...]`
+   chains are unnecessary. reorderTasks converted: 181 → 142 lines, zero
+   per-example eval helper lemmas. Remaining: convert
+   exportWorkspaceData/scopedUpdate (their helpers are at hypothesis
+   locations — use inline literal-fuel `have`s proved by eval_step);
+   matchesPattern segments; registered simp sets.
 3. SSA experiment: extractor pass eliminating `letMut` for non-loop-carried
    reassignment; measure hypothesis/statement shrinkage (§5.4).
 4. Re-prove all examples; **metric: proof LOC per invariant**, target ≥3× reduction
